@@ -1,0 +1,68 @@
+{
+  "event_id": "995",
+  "guest_count": 150,
+  "notes": "Kitchen substituted Grilled Salmon for spring rolls station on prep floor Tuesday -- confirm with client.",
+  "menu_items": [
+    {
+      "name": "Thai-Style Chicken Skewers",
+      "ingredients": [
+        "chicken thigh",
+        "satay sauce",
+        "lime",
+        "cilantro",
+        "rice vinegar"
+      ],
+      "declared_allergens": [
+        "soy"
+      ]
+    },
+    {
+      "name": "Herb-Crusted Chicken Breast",
+      "ingredients": [
+        "chicken breast",
+        "breadcrumbs",
+        "rosemary",
+        "olive oil",
+        "garlic"
+      ],
+      "declared_allergens": [
+        "wheat_gluten"
+      ]
+    },
+    {
+      "name": "Wild Mushroom Risotto",
+      "ingredients": [
+        "arborio rice",
+        "wild mushrooms",
+        "parmesan",
+        "butter",
+        "vegetable stock"
+      ],
+      "declared_allergens": [
+        "milk"
+      ]
+    },
+    {
+      "name": "Seasonal Green Salad",
+      "ingredients": [
+        "mixed greens",
+        "cherry tomatoes",
+        "cucumber",
+        "champagne vinaigrette"
+      ],
+      "declared_allergens": []
+    },
+    {
+      "name": "Grilled Salmon",
+      "ingredients": [
+        "salmon fillet",
+        "lemon",
+        "dill",
+        "olive oil"
+      ],
+      "declared_allergens": [
+        "fish"
+      ]
+    }
+  ]
+}

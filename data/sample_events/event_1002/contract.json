@@ -1,0 +1,19 @@
+{
+  "event_id": "1002",
+  "client_name": "Northline Analytics Q3 Offsite",
+  "guest_count": 80,
+  "contracted_menu_items": [
+    "Caesar Salad",
+    "Grilled Vegetable Wrap",
+    "Roasted Turkey Sandwich",
+    "Assorted Cookies"
+  ],
+  "guaranteed_allergen_free": [],
+  "price_per_head": 34.0,
+  "special_instructions": "Standard corporate box lunch, no known allergy accommodations requested.",
+  "event_date": "Wednesday, March 4, 2026",
+  "venue": "Iribe Building, University of Maryland, College Park, MD 20742",
+  "event_time": "11:30 AM - 1:00 PM",
+  "status": "confirmed",
+  "division": "Goodies To Go"
+}

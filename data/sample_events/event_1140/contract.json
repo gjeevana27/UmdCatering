@@ -1,0 +1,18 @@
+{
+  "event_id": "1140",
+  "client_name": "Alvarez Retirement Dinner",
+  "guest_count": 40,
+  "contracted_menu_items": [
+    "Butternut Squash Soup",
+    "Roasted Chicken with Root Vegetables",
+    "Chocolate Lava Cake"
+  ],
+  "guaranteed_allergen_free": [],
+  "price_per_head": 95.0,
+  "special_instructions": "No allergy accommodations requested.",
+  "event_date": "Sunday, April 12, 2026",
+  "venue": "Private residence, Bowie, MD",
+  "event_time": "6:00 PM - 9:00 PM",
+  "status": "confirmed",
+  "division": "Goodies To Go"
+}

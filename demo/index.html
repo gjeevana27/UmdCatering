@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Event Compliance Agent — Demo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #EEF0EC;
+    --paper-raised: #F8F9F6;
+    --ink: #1C2521;
+    --ink-soft: #5B655F;
+    --line: #C9CFC8;
+    --amber: #B5720B;
+    --amber-bg: #FBF0DC;
+    --red: #A32B22;
+    --red-bg: #FBE7E3;
+    --green: #2E6E4E;
+    --green-bg: #E5F1EA;
+    --serif: 'Fraunces', Georgia, serif;
+    --mono: 'IBM Plex Mono', ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--mono);
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 48px 24px 80px;
+  }
+  header {
+    margin-bottom: 36px;
+    border-bottom: 2px solid var(--ink);
+    padding-bottom: 20px;
+  }
+  .kicker {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.02em;
+    color: var(--ink-soft);
+    margin: 0 0 10px;
+  }
+  h1 {
+    font-family: var(--serif);
+    font-optical-sizing: auto;
+    font-weight: 600;
+    font-size: 34px;
+    line-height: 1.15;
+    margin: 0 0 12px;
+    letter-spacing: -0.01em;
+  }
+  header p {
+    font-family: var(--serif);
+    font-size: 17px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    max-width: 60ch;
+    margin: 0;
+  }
+  .tabs {
+    display: flex;
+    gap: 2px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+  .tab {
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 10px 14px;
+    background: var(--paper-raised);
+    border: 1px solid var(--line);
+    cursor: pointer;
+    color: var(--ink-soft);
+    user-select: none;
+  }
+  .tab:hover { border-color: var(--ink); color: var(--ink); }
+  .tab.active {
+    background: var(--ink);
+    color: var(--paper-raised);
+    border-color: var(--ink);
+  }
+  .tab:focus-visible, .tab-run:focus-visible, .toggle:focus-visible {
+    outline: 2px solid var(--ink);
+    outline-offset: 2px;
+  }
+  .ticket {
+    background: var(--paper-raised);
+    border: 1px solid var(--line);
+    padding: 22px 24px;
+    margin-bottom: 20px;
+  }
+  .ticket-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    font-size: 13px;
+    padding: 6px 0;
+    border-bottom: 1px dashed var(--line);
+  }
+  .ticket-row:last-child { border-bottom: none; }
+  .ticket-row .label { color: var(--ink-soft); }
+  .ticket-row .value { text-align: right; font-weight: 500; }
+  .items {
+    font-size: 13px;
+    margin-top: 10px;
+    line-height: 1.8;
+  }
+  .items span { color: var(--ink-soft); }
+
+  .run-row { margin: 24px 0 8px; }
+  .tab-run {
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 600;
+    background: var(--ink);
+    color: var(--paper-raised);
+    border: none;
+    padding: 12px 20px;
+    cursor: pointer;
+  }
+  .tab-run:hover { background: #33403A; }
+  .tab-run:disabled { opacity: 0.5; cursor: default; }
+
+  .trace {
+    margin-top: 28px;
+    font-size: 13px;
+  }
+  .trace-title {
+    font-family: var(--serif);
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .trace-line {
+    padding: 7px 0 7px 20px;
+    border-left: 2px solid var(--line);
+    color: var(--ink-soft);
+    opacity: 0;
+    transform: translateY(4px);
+    animation: reveal 0.35s ease forwards;
+  }
+  @keyframes reveal { to { opacity: 1; transform: translateY(0); } }
+  .trace-line b { color: var(--ink); font-weight: 600; }
+
+  .results {
+    margin-top: 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .section-label {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: 15px;
+    margin: 22px 0 10px;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .section-label .count {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--ink-soft);
+  }
+  .finding {
+    border-left: 4px solid var(--line);
+    background: var(--paper-raised);
+    padding: 12px 16px;
+    font-size: 13px;
+    opacity: 0;
+    animation: reveal 0.3s ease forwards;
+  }
+  .finding.escalate { border-color: var(--red); background: var(--red-bg); }
+  .finding.review { border-color: var(--amber); background: var(--amber-bg); }
+  .finding.clear { border-color: var(--green); background: var(--green-bg); }
+  .finding .fitem {
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  .finding .fdetail { color: var(--ink); line-height: 1.5; margin-bottom: 4px; }
+  .finding .freason { color: var(--ink-soft); font-style: italic; }
+  .empty-note {
+    font-size: 13px;
+    color: var(--ink-soft);
+    font-style: italic;
+    padding: 4px 0;
+  }
+
+  .footnote {
+    margin-top: 40px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+    font-size: 12px;
+    color: var(--ink-soft);
+    line-height: 1.6;
+  }
+  .footnote b { color: var(--ink); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .trace-line, .finding { animation: none; opacity: 1; transform: none; }
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #14181A;
+      --paper-raised: #1C2224;
+      --ink: #E7ECE8;
+      --ink-soft: #93A099;
+      --line: #33403A;
+      --amber-bg: #2E230E;
+      --red-bg: #2E1613;
+      --green-bg: #12261D;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #14181A;
+    --paper-raised: #1C2224;
+    --ink: #E7ECE8;
+    --ink-soft: #93A099;
+    --line: #33403A;
+    --amber-bg: #2E230E;
+    --red-bg: #2E1613;
+    --green-bg: #12261D;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="kicker">EVENT COMPLIANCE AGENT — LIVE WALKTHROUGH</p>
+    <h1>Same logic that runs the Python agent, in your browser.</h1>
+    <p>Pick a sample event, run the review, and watch the agent separate deterministic
+       fact-finding from the one place it actually has to make a judgment call.
+       No allergen flag is ever auto-cleared — only escalated or routed to a human.</p>
+  </header>
+
+  <div class="tabs" id="tabs" role="tablist" aria-label="Sample events"></div>
+
+  <div class="ticket" id="ticket"></div>
+
+  <div class="run-row">
+    <button class="tab-run" id="runBtn">Run agent review</button>
+  </div>
+
+  <div id="traceWrap"></div>
+  <div class="results" id="results"></div>
+
+  <div class="footnote">
+    <b>This is a decision-support demo, not a food-safety system.</b>
+    Every finding shown here is a recommendation for a human reviewer — the agent
+    never approves a menu or clears an allergen conflict on its own authority.
+    The reasoning shown is the same rule set as <code>src/agent.py</code> and
+    <code>src/discrepancy_engine.py</code> in the repository; the ambiguous-case
+    LLM step is shown as it behaves with no API key configured (routed to human
+    review), which is the agent's safe default.
+  </div>
+</div>
+
+<script>
+// ---- Allergen reference (mirrors src/allergen_reference.py, rebuilt from
+// the kitchen's real reference cards -- see that file's docstring for
+// transcription notes and what's still unverified) ----
+const ALLERGEN_RULES = [
+  { category: "milk", direct: ["milk","cream","butter","cheese","yogurt"], hidden: ["au gratin","bechamel","alfredo","ranch dressing","caesar dressing"] },
+  { category: "egg", direct: ["egg powder","egg protein","egg white","egg yolk","pasteurized egg","eggnog"], hidden: ["albumin","mayonnaise","baking powder","ovalbumin","meringue"] },
+  { category: "fish", direct: ["anchovies","anchovy","salmon","tuna","cod","halibut","trout"], hidden: ["barbecue sauce","bouillabaisse","caesar dressing","caponata","worcestershire sauce"] },
+  { category: "shellfish", direct: ["shrimp","prawns","crab","lobster","scallops","oysters","crawfish"], hidden: ["bouillabaisse","glucosamine","fish stock","seafood flavoring","surimi"] },
+  { category: "peanut", direct: ["peanut protein","peanut oil","peanut butter","peanut flour","goober peas"], hidden: ["mandalona nuts","artificial nuts","mixed nuts","satay"] },
+  { category: "tree_nuts", direct: ["almonds","walnuts","cashews","pecans","pistachios","hazelnuts","macadamia nuts","brazil nuts"], hidden: ["marzipan","pesto","mixed nuts"] },
+  { category: "sesame", direct: ["sesame seeds","sesame oil","sesame"], hidden: ["tahini"] },
+  { category: "wheat_gluten", direct: ["wheat starch","wheat gluten","wheat bran","whole wheat flour","flour"], hidden: ["bread crumbs","barley","rye","soy sauce","oats","pasta","panko","malt"] },
+  { category: "soy", direct: ["tofu","soy beans","soy flour","soy milk","soy sauce","edamame"], hidden: ["lecithin","tempeh","shoyu","tamari","miso","textured vegetable protein"] },
+];
+
+function scanRecipe(ingredients) {
+  const findings = {};
+  for (const raw of ingredients) {
+    const name = raw.toLowerCase();
+    for (const rule of ALLERGEN_RULES) {
+      for (const term of rule.direct) {
+        if (name.includes(term)) (findings[rule.category] ??= []).push({type:"direct", term, source: raw});
+      }
+      for (const term of rule.hidden) {
+        if (name.includes(term)) (findings[rule.category] ??= []).push({type:"hidden", term, source: raw});
+      }
+    }
+  }
+  return findings;
+}
+
+// ---- Sample events (mirrors data/sample_events/*) ----
+const EVENTS = {
+  "995": {
+    label: "Event 995 — Harmon-Reyes Wedding",
+    contract: {
+      client: "Harmon-Reyes Wedding", guests: 150,
+      items: ["Vegetable Spring Rolls","Thai-Style Chicken Skewers","Herb-Crusted Chicken Breast","Wild Mushroom Risotto","Seasonal Green Salad"],
+      guaranteedFree: ["peanut", "tree_nuts"],
+    },
+    sheet: {
+      guests: 150,
+      items: [
+        { name: "Thai-Style Chicken Skewers", ingredients: ["chicken thigh","satay sauce","lime","cilantro"], declared: ["soy"] },
+        { name: "Herb-Crusted Chicken Breast", ingredients: ["chicken breast","breadcrumbs","rosemary"], declared: ["wheat_gluten"] },
+        { name: "Wild Mushroom Risotto", ingredients: ["arborio rice","wild mushrooms","parmesan","butter"], declared: ["milk"] },
+        { name: "Seasonal Green Salad", ingredients: ["mixed greens","cherry tomatoes","champagne vinaigrette"], declared: [] },
+        { name: "Grilled Salmon", ingredients: ["salmon fillet","lemon","dill"], declared: ["fish"] },
+      ],
+    },
+  },
+  "1002": {
+    label: "Event 1002 — Northline Analytics Offsite",
+    contract: {
+      client: "Northline Analytics Q3 Offsite", guests: 80,
+      items: ["Caesar Salad","Grilled Vegetable Wrap","Roasted Turkey Sandwich","Assorted Cookies"],
+      guaranteedFree: [],
+    },
+    sheet: {
+      guests: 92,
+      items: [
+        { name: "Caesar Salad", ingredients: ["romaine","caesar dressing","parmesan","croutons"], declared: ["milk","wheat_gluten"] },
+        { name: "Grilled Vegetable Wrap", ingredients: ["flour tortilla","zucchini","hummus"], declared: ["wheat_gluten","sesame"] },
+        { name: "Roasted Turkey Sandwich", ingredients: ["turkey breast","sourdough bread","swiss cheese"], declared: ["wheat_gluten","milk"] },
+        { name: "Assorted Cookies", ingredients: ["flour","butter","sugar","eggs"], declared: ["wheat_gluten","milk","egg"] },
+      ],
+    },
+  },
+  "1140": {
+    label: "Event 1140 — Alvarez Retirement Dinner",
+    contract: {
+      client: "Alvarez Retirement Dinner", guests: 40,
+      items: ["Butternut Squash Soup","Roasted Chicken with Root Vegetables","Chocolate Lava Cake"],
+      guaranteedFree: [],
+    },
+    sheet: {
+      guests: 40,
+      items: [
+        { name: "Butternut Squash Soup", ingredients: ["butternut squash","vegetable stock","cream","nutmeg"], declared: [] },
+        { name: "Roasted Chicken with Root Vegetables", ingredients: ["chicken","carrot","parsnip"], declared: [] },
+        { name: "Chocolate Lava Cake", ingredients: ["dark chocolate","butter","eggs","flour"], declared: ["milk","egg","wheat_gluten"] },
+      ],
+    },
+  },
+};
+
+// ---- Deterministic checks (mirrors src/discrepancy_engine.py) ----
+function runChecks(ev) {
+  const findings = [];
+  const contractedLower = new Set(ev.contract.items.map(i => i.toLowerCase()));
+  const producedLower = new Map(ev.sheet.items.map(i => [i.name.toLowerCase(), i.name]));
+
+  for (const [lower, original] of producedLower) {
+    if (!contractedLower.has(lower)) {
+      findings.push({ type: "menu_mismatch", severity: "medium", item: original,
+        detail: `'${original}' appears on the production sheet but was not in the signed contract's item list.` });
+    }
+  }
+  for (const c of ev.contract.items) {
+    if (!producedLower.has(c.toLowerCase())) {
+      findings.push({ type: "menu_mismatch", severity: "high", item: c,
+        detail: `'${c}' is in the signed contract but missing from the production sheet entirely.` });
+    }
+  }
+
+  const guaranteedFree = new Set(ev.contract.guaranteedFree);
+  if (guaranteedFree.size) {
+    for (const item of ev.sheet.items) {
+      const scan = scanRecipe(item.ingredients);
+      for (const [category, matches] of Object.entries(scan)) {
+        if (guaranteedFree.has(category)) {
+          for (const m of matches) {
+            findings.push({ type: "allergen_conflict", severity: "high", item: item.name,
+              detail: `'${item.name}' contains '${m.source}', a ${m.type} source of ${category.replace('_',' ')} — a category this event's contract guarantees is absent.` });
+          }
+        }
+      }
+    }
+  }
+
+  for (const item of ev.sheet.items) {
+    const scan = scanRecipe(item.ingredients);
+    const declared = new Set(item.declared.map(d => d.toLowerCase()));
+    for (const [category, matches] of Object.entries(scan)) {
+      if (!declared.has(category.toLowerCase())) {
+        const hidden = matches.some(m => m.type === "hidden");
+        findings.push({ type: "allergen_undeclared", severity: hidden ? "medium" : "low", item: item.name,
+          detail: `'${item.name}' contains ${category.replace('_',' ')} (via '${matches[0].source}') but the recipe card doesn't list it as a declared allergen.` });
+      }
+    }
+  }
+
+  if (ev.contract.guests !== ev.sheet.guests) {
+    const diff = ev.sheet.guests - ev.contract.guests;
+    findings.push({ type: "guest_count_mismatch", severity: Math.abs(diff) > 5 ? "medium" : "low", item: "guest_count",
+      detail: `Contract guarantees ${ev.contract.guests} guests; production sheet is built for ${ev.sheet.guests} (${diff > 0 ? '+' : ''}${diff}).` });
+  }
+
+  return findings;
+}
+
+// ---- Decision layer (mirrors src/agent.py) ----
+function decide(f) {
+  if (f.type === "allergen_conflict" && f.severity === "high") {
+    return { decision: "escalate", reasoning: "Guaranteed-allergen-free violation: always escalated. No rule or model override exists for this case.", tag: "[RULE — hard escalation]" };
+  }
+  if (f.severity === "high") {
+    return { decision: "escalate", reasoning: "High-severity finding, escalated by rule.", tag: "[RULE]" };
+  }
+  if (f.severity === "low" && f.type !== "allergen_conflict") {
+    return { decision: "clear", reasoning: "Low-severity, non-safety finding, cleared by rule.", tag: "[RULE]" };
+  }
+  return { decision: "review", reasoning: "Ambiguous finding, no LLM configured: routed to human review rather than auto-decided.", tag: "[RULE — safe default, no LLM key]" };
+}
+
+// ---- UI wiring ----
+const tabsEl = document.getElementById("tabs");
+const ticketEl = document.getElementById("ticket");
+const traceWrap = document.getElementById("traceWrap");
+const resultsEl = document.getElementById("results");
+const runBtn = document.getElementById("runBtn");
+
+let currentId = "995";
+
+function renderTabs() {
+  tabsEl.innerHTML = "";
+  Object.entries(EVENTS).forEach(([id, ev]) => {
+    const t = document.createElement("div");
+    t.className = "tab" + (id === currentId ? " active" : "");
+    t.textContent = ev.label;
+    t.setAttribute("role", "tab");
+    t.tabIndex = 0;
+    t.onclick = () => selectEvent(id);
+    t.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectEvent(id); } };
+    tabsEl.appendChild(t);
+  });
+}
+
+function renderTicket() {
+  const ev = EVENTS[currentId];
+  ticketEl.innerHTML = `
+    <div class="ticket-row"><span class="label">Client</span><span class="value">${ev.contract.client}</span></div>
+    <div class="ticket-row"><span class="label">Contracted guests</span><span class="value">${ev.contract.guests}</span></div>
+    <div class="ticket-row"><span class="label">Production sheet guests</span><span class="value">${ev.sheet.guests}</span></div>
+    <div class="ticket-row"><span class="label">Guaranteed allergen-free</span><span class="value">${ev.contract.guaranteedFree.length ? ev.contract.guaranteedFree.join(", ").replace(/_/g," ") : "none specified"}</span></div>
+    <div class="items">
+      <span>Contracted items:</span> ${ev.contract.items.join(" · ")}<br>
+      <span>On production sheet:</span> ${ev.sheet.items.map(i=>i.name).join(" · ")}
+    </div>
+  `;
+  traceWrap.innerHTML = "";
+  resultsEl.innerHTML = "";
+}
+
+function selectEvent(id) {
+  currentId = id;
+  renderTabs();
+  renderTicket();
+}
+
+function runReview() {
+  runBtn.disabled = true;
+  const ev = EVENTS[currentId];
+  const findings = runChecks(ev);
+
+  traceWrap.innerHTML = `<div class="trace"><div class="trace-title">Agent reasoning trace</div></div>`;
+  const traceBox = traceWrap.querySelector(".trace");
+  resultsEl.innerHTML = "";
+
+  const steps = [`Loaded contract and production sheet for event ${currentId}. ${findings.length} finding(s) from deterministic checks.`];
+  const decisions = findings.map(f => ({ finding: f, ...decide(f) }));
+  decisions.forEach(d => {
+    steps.push(`${d.tag} '${d.finding.item}' → ${d.decision.toUpperCase()}`);
+  });
+
+  let i = 0;
+  const stepDelay = 260;
+  function nextStep() {
+    if (i < steps.length) {
+      const line = document.createElement("div");
+      line.className = "trace-line";
+      line.style.animationDelay = "0s";
+      line.innerHTML = steps[i];
+      traceBox.appendChild(line);
+      i++;
+      setTimeout(nextStep, stepDelay);
+    } else {
+      renderResults(decisions);
+      runBtn.disabled = false;
+    }
+  }
+  nextStep();
+}
+
+function renderResults(decisions) {
+  const groups = { escalate: [], review: [], clear: [] };
+  decisions.forEach(d => groups[d.decision].push(d));
+
+  const section = (title, key, items, emptyText) => {
+    let html = `<div class="section-label">${title}<span class="count">(${items.length})</span></div>`;
+    if (!items.length) {
+      html += `<div class="empty-note">${emptyText}</div>`;
+    } else {
+      items.forEach((d, idx) => {
+        html += `<div class="finding ${key}" style="animation-delay:${idx * 0.08}s">
+          <div class="fitem">${d.finding.type.replace(/_/g," ")} — ${d.finding.item}</div>
+          <div class="fdetail">${d.finding.detail}</div>
+          <div class="freason">${d.reasoning}</div>
+        </div>`;
+      });
+    }
+    return html;
+  };
+
+  resultsEl.innerHTML =
+    section("Escalated — act before the event", "escalate", groups.escalate, "Nothing required immediate human action on this pass.") +
+    section("Needs human review — unclear, not urgent", "review", groups.review, "No ambiguous cases on this pass.") +
+    section("Auto-cleared — reviewed, no action needed", "clear", groups.clear, "Nothing was low-severity enough to clear automatically.");
+}
+
+runBtn.addEventListener("click", runReview);
+renderTabs();
+renderTicket();
+</script>
+</body>
+</html>

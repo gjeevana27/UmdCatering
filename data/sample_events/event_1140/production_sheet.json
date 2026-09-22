@@ -1,0 +1,44 @@
+{
+  "event_id": "1140",
+  "guest_count": 40,
+  "notes": "",
+  "menu_items": [
+    {
+      "name": "Butternut Squash Soup",
+      "ingredients": [
+        "butternut squash",
+        "vegetable stock",
+        "cream",
+        "nutmeg",
+        "shallot"
+      ],
+      "declared_allergens": []
+    },
+    {
+      "name": "Roasted Chicken with Root Vegetables",
+      "ingredients": [
+        "chicken",
+        "carrot",
+        "parsnip",
+        "olive oil",
+        "thyme"
+      ],
+      "declared_allergens": []
+    },
+    {
+      "name": "Chocolate Lava Cake",
+      "ingredients": [
+        "dark chocolate",
+        "butter",
+        "eggs",
+        "flour",
+        "sugar"
+      ],
+      "declared_allergens": [
+        "milk",
+        "egg",
+        "wheat_gluten"
+      ]
+    }
+  ]
+}

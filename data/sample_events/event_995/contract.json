@@ -1,0 +1,23 @@
+{
+  "event_id": "995",
+  "client_name": "Harmon-Reyes Wedding",
+  "guest_count": 150,
+  "contracted_menu_items": [
+    "Vegetable Spring Rolls",
+    "Thai-Style Chicken Skewers",
+    "Herb-Crusted Chicken Breast",
+    "Wild Mushroom Risotto",
+    "Seasonal Green Salad"
+  ],
+  "guaranteed_allergen_free": [
+    "peanut",
+    "tree_nuts"
+  ],
+  "price_per_head": 118.5,
+  "special_instructions": "Client's sibling has a severe tree nut allergy. Client was verbally and contractually assured the entire menu is nut-free (both peanut and tree nut, per the family's request to be safe).",
+  "event_date": "Saturday, December 13, 2025",
+  "venue": "Riggs Alumni Center, College Park, MD 20742",
+  "event_time": "3:15 PM - 4:15 PM",
+  "status": "confirmed",
+  "division": "Good Tidings"
+}

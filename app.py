@@ -1,0 +1,1036 @@
+"""
+Contract Version Tracker — Good Tidings / Goodies To Go
+
+Core purpose: upload a contract (photo/PDF), extract the event fields,
+compare against whatever is already stored for that event, and tell the
+chef what changed. Also folds in the standalone allergen scanner from
+app_compliance_agent_full.py (a quick one-dish ingredient check, no
+contract needed) -- production-sheet-vs-contract checks and the live
+recall feed are still separate, for later.
+
+Storage is Firestore. Two completely separate collections, one per
+division — a division's uploads only ever read/write its own collection.
+
+Run locally:
+    streamlit run app.py
+
+Requires:
+    GEMINI_API_KEY               — extraction (see README)
+    Firestore credentials, either:
+      - FIRESTORE_CREDENTIALS_PATH env var pointing at the service-account
+        JSON file (local dev), or
+      - st.secrets["FIRESTORE_SERVICE_ACCOUNT_JSON"] — the JSON file's
+        full contents pasted as a secret (Streamlit Cloud deployment)
+    APP_PASSCODE                 — a shared passcode gating the app, since
+        it will run on a public URL against your own API/Firestore quota.
+        Set via env var locally or st.secrets on Streamlit Cloud.
+"""
+
+import hashlib
+import json
+import os
+import sys
+import tempfile
+from datetime import datetime
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import streamlit as st
+import streamlit.components.v1 as components
+from dotenv import load_dotenv
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
+load_dotenv()  # loads .env from the project root, if it exists -- see
+# .env.example. Silently does nothing if no .env file is present, so this
+# is safe to leave in even on a deployment that uses Streamlit secrets
+# instead (Streamlit Cloud never has a .env file).
+
+import allergen_scan  # noqa: E402
+import contract_agent  # noqa: E402
+import contract_store as store  # noqa: E402
+import extract  # noqa: E402
+import llm_client  # noqa: E402
+
+st.set_page_config(page_title="Contract Version Tracker", page_icon="🍽️", layout="wide")
+
+# ---------------------------------------------------------------------------
+# Visual identity — same tokens as demo/index.html, ported to Streamlit.
+# ---------------------------------------------------------------------------
+st.markdown("""
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper: #EEF0EC; --paper-raised: #F8F9F6; --ink: #1C2521; --ink-soft: #5B655F;
+  --line: #C9CFC8; --amber: #B5720B; --amber-bg: #FBF0DC; --red: #A32B22;
+  --red-bg: #FBE7E3; --green: #2E6E4E; --green-bg: #E5F1EA;
+}
+html, body, [class*="css"] { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+h1, h2, h3 { font-family: 'Fraunces', Georgia, serif !important; font-weight: 600 !important; }
+.stApp { background: var(--paper); color: var(--ink); }
+.ticket {
+  background: var(--paper-raised); border: 1px solid var(--line);
+  padding: 18px 20px; margin-bottom: 14px;
+}
+.field-changed {
+  border-left: 4px solid var(--amber); background: var(--amber-bg);
+  padding: 10px 14px; margin-bottom: 8px; font-size: 14px;
+}
+.menu-added { border-left: 4px solid var(--green); background: var(--green-bg);
+  padding: 10px 14px; margin-bottom: 8px; font-size: 14px; }
+.menu-removed { border-left: 4px solid var(--red); background: var(--red-bg);
+  padding: 10px 14px; margin-bottom: 8px; font-size: 14px; }
+.menu-changed { border-left: 4px solid var(--amber); background: var(--amber-bg);
+  padding: 10px 14px; margin-bottom: 8px; font-size: 14px; }
+.stButton button { transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease; }
+.stButton button:hover { transform: translateY(-1px); box-shadow: 0 3px 10px rgba(28, 37, 33, 0.14); border-color: var(--amber); }
+.stButton button:active { transform: translateY(0); box-shadow: none; }
+[data-testid="stVerticalBlockBorderWrapper"] { transition: box-shadow 0.15s ease, border-color 0.15s ease; }
+[data-testid="stVerticalBlockBorderWrapper"]:hover { box-shadow: 0 2px 10px rgba(28, 37, 33, 0.10); border-color: var(--amber); }
+.stTabs [data-baseweb="tab"] { transition: color 0.15s ease; }
+.stTabs [data-baseweb="tab"]:hover { color: var(--amber); }
+[data-testid="stFileUploaderDropzone"] { transition: border-color 0.15s ease, background-color 0.15s ease; }
+[data-testid="stFileUploaderDropzone"]:hover { border-color: var(--amber); }
+.ticket, .field-changed, .menu-added, .menu-removed, .menu-changed { transition: transform 0.15s ease, box-shadow 0.15s ease; }
+.ticket:hover, .field-changed:hover, .menu-added:hover, .menu-removed:hover, .menu-changed:hover {
+  transform: translateX(2px); box-shadow: 0 2px 8px rgba(28, 37, 33, 0.10);
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.main .block-container { animation: fadeIn 0.35s ease-out; }
+.chicken-lane { position: relative; height: 42px; margin: 0 0 -20px 0; overflow: visible; }
+.chicken-walker { position: absolute; left: 0; top: 0; font-size: 36px; line-height: 1; display: inline-block; animation: chicken-walk 7s ease-in-out infinite; }
+@keyframes chicken-walk {
+  0% { transform: translate(0, 0) scaleX(-1); }
+  12% { transform: translate(45px, -5px) scaleX(-1); }
+  24% { transform: translate(90px, 0) scaleX(-1); }
+  36% { transform: translate(135px, -5px) scaleX(-1); }
+  48% { transform: translate(180px, 0) scaleX(-1); }
+  50% { transform: translate(180px, 0) scaleX(1); }
+  62% { transform: translate(135px, -5px) scaleX(1); }
+  74% { transform: translate(90px, 0) scaleX(1); }
+  86% { transform: translate(45px, -5px) scaleX(1); }
+  98% { transform: translate(0, 0) scaleX(1); }
+  100% { transform: translate(0, 0) scaleX(-1); }
+}
+@keyframes bell-ring {
+  0% { transform: rotate(0deg); }
+  2% { transform: rotate(14deg); }
+  4% { transform: rotate(-10deg); }
+  6% { transform: rotate(8deg); }
+  8% { transform: rotate(-6deg); }
+  10% { transform: rotate(4deg); }
+  12% { transform: rotate(-2deg); }
+  14% { transform: rotate(0deg); }
+  100% { transform: rotate(0deg); }
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+# ---------------------------------------------------------------------------
+# Passcode gate — this runs on a public URL against your own API/DB quota.
+# ---------------------------------------------------------------------------
+def _get_secret(name):
+    val = os.environ.get(name)
+    if val:
+        return val
+    try:
+        return st.secrets[name]
+    except Exception:
+        return None
+
+
+def require_passcode():
+    correct = _get_secret("APP_PASSCODE")
+    if not correct:
+        return  # no passcode configured -- open access (fine for local dev)
+    if st.session_state.get("authed"):
+        return
+    st.title("🍽️ Contract Version Tracker")
+    code = st.text_input("Passcode", type="password")
+    if st.button("Enter"):
+        if code == correct:
+            st.session_state["authed"] = True
+            st.rerun()
+        else:
+            st.error("Incorrect passcode.")
+    st.stop()
+
+
+require_passcode()
+
+
+# ---------------------------------------------------------------------------
+# Firestore client
+# ---------------------------------------------------------------------------
+@st.cache_resource
+def get_firestore_client():
+    path = os.environ.get("FIRESTORE_CREDENTIALS_PATH")
+    if path:
+        return store.get_client(credentials_path=path)
+    raw = _get_secret("FIRESTORE_SERVICE_ACCOUNT_JSON")
+    if raw:
+        info = json.loads(raw) if isinstance(raw, str) else dict(raw)
+        return store.get_client(credentials_info=info)
+    return None
+
+
+client = get_firestore_client()
+
+
+# ---------------------------------------------------------------------------
+# Shared rendering
+# ---------------------------------------------------------------------------
+def _change_label(c) -> tuple:
+    """Shared by the on-screen diff and the notification log, so a stored
+    notification always reads exactly like what was shown at upload time."""
+    if hasattr(c, "field"):  # FieldChange
+        label = f"{c.field.replace('_', ' ')}: {c.old_value} → {c.new_value}"
+        css = "field-changed"
+    else:  # MenuChange
+        tag = {"added": "ADDED", "removed": "REMOVED", "changed": "CHANGED"}[c.change_type]
+        label = f"{tag} — {c.recipe_name}: {c.detail}"
+        css = {"added": "menu-added", "removed": "menu-removed",
+               "changed": "menu-changed"}[c.change_type]
+    return label, css
+
+
+def _serialize_decisions(result: dict) -> list:
+    """Flattens a contract_agent.evaluate_changes() result into plain,
+    Firestore-storable dicts for save_notification()."""
+    out = []
+    for bucket in ("escalate", "review"):
+        for d in result[bucket]:
+            label, _ = _change_label(d.change)
+            out.append({"label": label, "decision": bucket,
+                        "reasoning": d.reasoning, "made_by": d.made_by})
+    return out
+
+
+def _evaluate_and_store(division: str, data: dict, prior, new_record, *, migrate_from=None) -> dict:
+    """Shared tail end: diff prior vs. new_record, save new_record, log a
+    notification if anything changed. `prior` may be None (nothing to
+    diff against -- shouldn't happen when this is called, but handled for
+    safety). `migrate_from`, if given, is a ContractRecord whose OLD
+    (event_id, event_date) document gets deleted after the new one is
+    saved -- used for a confirmed reschedule, so linking two dates
+    together still leaves exactly one active record for that event
+    lineage rather than a stale orphan."""
+    field_changes, menu_changes = store.diff_records(prior, new_record) if prior else ([], [])
+    store.save(client, new_record)
+    if migrate_from is not None:
+        store.delete_record(client, division, migrate_from.event_id, migrate_from.event_date)
+
+    reschedule_note = (f"Rescheduled from {prior.event_date} to {new_record.event_date} -- "
+                        if migrate_from is not None else "")
+
+    serialized = []
+    if field_changes or menu_changes:
+        result = contract_agent.evaluate_changes(field_changes, menu_changes,
+                                                  extraction_confidence=data.get("_confidence", "high"))
+        serialized = _serialize_decisions(result)
+
+    # Anything still unresolved from an EARLIER notification on this same
+    # event gets folded into this one too, rather than staying stuck in a
+    # separate, easy-to-miss older notification -- a chef checking "the
+    # latest notification" for an event should see everything still
+    # outstanding, not just what changed in this specific diff. Runs even
+    # when this diff found nothing new, so an older unresolved item never
+    # gets silently orphaned by a no-op re-upload.
+    carried = store.pull_unresolved_changes_for_event(client, division, new_record.event_id)
+    seen_labels = {c["label"] for c in serialized}
+    for c in carried:
+        if c["label"] not in seen_labels:
+            serialized.append(c)
+            seen_labels.add(c["label"])
+
+    if not serialized:
+        return {"icon": "⚪", "name": new_record.source_filename,
+                "message": f"{reschedule_note}No other changes for event {new_record.event_id}."}
+
+    store.save_notification(client, division, new_record.event_id,
+                             new_record.source_filename, serialized)
+    escalate_n = sum(1 for c in serialized if c["decision"] == "escalate")
+    review_n = len(serialized) - escalate_n
+    icon = "🔴" if escalate_n else "🟡"
+    return {"icon": icon, "name": new_record.source_filename,
+            "message": f"{reschedule_note}Updated event {new_record.event_id} — "
+                       f"{escalate_n} to act on, {review_n} to review — "
+                       f"see the Notifications tab."}
+
+
+def _diff_and_store(division: str, data: dict, new_record, link_to_prior_date=None) -> dict:
+    """Looks up whatever's on file for this EXACT (event_id, event_date)
+    pair and either stores it as a new baseline, skips it as an exact-file
+    repeat, defers it pending a reschedule-vs-separate-booking decision, or
+    diffs + saves + logs a notification. Returns one {"icon", "name",
+    "message"} outcome for the batch summary.
+
+    link_to_prior_date: a ContractRecord for this event_id under a
+    DIFFERENT date, only passed when the chef has just confirmed (via
+    _render_pending_confirmations) that this upload is the same event,
+    rescheduled -- diffs against that prior record instead of doing a
+    fresh exact-match lookup, and retires the prior record afterward.
+    """
+    if link_to_prior_date is not None:
+        return _evaluate_and_store(division, data, link_to_prior_date, new_record,
+                                    migrate_from=link_to_prior_date)
+
+    existing = store.lookup(client, division, new_record.event_id, new_record.event_date)
+
+    if existing is not None:
+        if existing.source_file_hash and existing.source_file_hash == new_record.source_file_hash:
+            # Byte-for-byte the same file already on record -- nothing on
+            # the actual document could have changed, so skip the diff
+            # entirely rather than trust two independent Gemini reads of
+            # the identical image to agree on every field.
+            return {"icon": "⚪", "name": new_record.source_filename,
+                    "message": f"Exact same file already on record for event "
+                               f"{new_record.event_id} — nothing to compare."}
+        return _evaluate_and_store(division, data, existing, new_record)
+
+    # No record for this exact (event_id, event_date). Before treating it
+    # as a brand-new event, check whether this event_id has history under
+    # a DIFFERENT date -- that might be the same event, rescheduled.
+    others = store.find_other_dates(client, division, new_record.event_id,
+                                     exclude_event_date=new_record.event_date)
+    if not others:
+        store.save(client, new_record)
+        return {"icon": "🟢", "name": new_record.source_filename,
+                "message": f"New — stored as the baseline for event {new_record.event_id}."}
+
+    prior = others[0]
+    pending_key = f"batch_pending_{division}"
+    st.session_state.setdefault(pending_key, []).append({
+        "reason": "reschedule", "data": data, "new_record": new_record,
+        "prior_record": prior,
+    })
+    return {"icon": "🟡", "name": new_record.source_filename,
+            "message": f"Event {new_record.event_id} is on file under a different date "
+                       f"({prior.event_date}), this upload says {new_record.event_date} "
+                       f"— waiting for your decision below."}
+
+
+def _extract_and_classify(division: str, uploaded):
+    """Extracts and classifies ONE uploaded file, WITHOUT storing anything
+    yet -- storing happens afterward in the batch loop below, once every
+    file in the batch has been extracted and any same-(event_id,
+    event_date) files within it have been reordered by print timestamp
+    (see process_division). Returns either ("outcome", result_dict) for a
+    terminal case (extraction failure, division mismatch/pending, missing
+    event ID), or ("ready", data, new_record) for a file that's ready to
+    be diffed and stored."""
+    file_bytes = uploaded.getvalue()
+    file_hash = hashlib.sha256(file_bytes).hexdigest()
+
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded.name).suffix) as tf:
+            tf.write(file_bytes)
+            tmp_path = tf.name
+        data = extract.extract_contract_record(tmp_path)
+    except extract.ExtractionError as e:
+        return ("outcome", {"icon": "🔴", "name": uploaded.name,
+                             "message": f"Extraction failed: {e}"})
+
+    extracted_division = str(data.get("division", "")).strip()
+    if extracted_division and extracted_division.lower() != division.lower():
+        return ("outcome", {"icon": "🔴", "name": uploaded.name,
+                             "message": f"Division mismatch — looks like a {extracted_division} "
+                                        f"contract (read from its header/footer). Skipped, not stored."})
+
+    items = [store.MenuLineItem(qty_unit=i.get("qty_unit", ""),
+                                 recipe_name=i.get("recipe_name", ""),
+                                 description=i.get("description", ""))
+             for i in data.get("menu_items", [])]
+    new_record = store.ContractRecord(
+        event_id=str(data.get("event_id", "")).strip(),
+        event_date=data.get("event_date", ""),
+        event_time=data.get("event_time", ""),
+        location=data.get("location", ""),
+        event_type=data.get("event_type", ""),
+        guest_count=data.get("guest_count", 0),
+        time_desc_notes=data.get("time_desc_notes", ""),
+        menu_items=items,
+        division=division,
+        source_filename=uploaded.name,
+        source_file_hash=file_hash,
+        print_datetime=data.get("print_datetime", ""),
+    )
+
+    if not new_record.event_id:
+        return ("outcome", {"icon": "🔴", "name": uploaded.name,
+                             "message": "Could not read an Event ID from this document — "
+                                        "can't store it without one."})
+
+    if not extracted_division:
+        pending_key = f"batch_pending_{division}"
+        st.session_state.setdefault(pending_key, []).append({
+            "reason": "division", "data": data, "new_record": new_record,
+        })
+        return ("outcome", {"icon": "🟡", "name": uploaded.name,
+                             "message": f"Couldn't confirm this is a {division} document from its "
+                                        f"header/footer — waiting for your confirmation below."})
+
+    return ("ready", data, new_record)
+
+
+def _process_upload_batch(division: str, uploaded_files, on_progress=None) -> list:
+    """Extracts every file first, then stores/diffs them -- two passes,
+    not one, specifically so files that land in the SAME batch under the
+    same (event_id, event_date) can be reordered before any of them touch
+    the database. Upload order (whatever order the file picker returns
+    them in) doesn't reflect which document was actually produced first;
+    the document's own 'Print Date/Time' footer stamp does, so within
+    each such group the earliest-printed one is stored first (becoming
+    the baseline) and later ones are diffed against it in print order --
+    otherwise whichever file happened to come first in the list would be
+    treated as the baseline regardless of which one is actually older."""
+    total = len(uploaded_files)
+    ready = []      # [(data, new_record), ...] in original upload order
+    results = []    # terminal outcomes, in original upload order (errors,
+                     # pending confirmations)
+
+    for i, uploaded in enumerate(uploaded_files, start=1):
+        if on_progress:
+            on_progress(i, total, uploaded.name)
+        kind, *rest = _extract_and_classify(division, uploaded)
+        if kind == "outcome":
+            results.append(rest[0])
+        else:
+            data, new_record = rest
+            ready.append((data, new_record))
+
+    groups = {}
+    for data, new_record in ready:
+        key = store._doc_id(new_record.event_id, new_record.event_date)
+        groups.setdefault(key, []).append((data, new_record))
+
+    for group in groups.values():
+        if len(group) > 1:
+            group.sort(key=lambda dn: (
+                store.parse_print_datetime(dn[1].print_datetime) is None,
+                store.parse_print_datetime(dn[1].print_datetime) or datetime.min,
+            ))
+        for data, new_record in group:
+            results.append(_diff_and_store(division, data, new_record))
+
+    return results
+
+
+def _render_pending_confirmations(division: str):
+    """Files from a batch upload that couldn't be auto-resolved -- an
+    unreadable division marker, or an event date that doesn't match
+    what's on file. Persists in session_state across reruns so resolving
+    one doesn't force re-extracting the rest of the batch."""
+    pending_key = f"batch_pending_{division}"
+    pending = st.session_state.get(pending_key, [])
+    if not pending:
+        return
+
+    st.warning(f"⚠️ {len(pending)} file(s) from your last upload need a decision "
+               f"before they're stored:")
+
+    still_pending = []
+    resolved = []
+    for item in pending:
+        new_record = item["new_record"]
+        data = item["data"]
+        item_key = f"{division}_{new_record.event_id}_{new_record.source_file_hash}_{item['reason']}"
+
+        if item["reason"] == "division":
+            prompt = (f"**{new_record.source_filename}** — couldn't confirm this is a "
+                      f"**{division}** document from its header/footer. Store it under "
+                      f"**{division}** anyway?")
+            with st.container(border=True):
+                st.markdown(prompt)
+                col_yes, col_no = st.columns(2)
+                confirm_clicked = col_yes.button("Yes — store it", key=f"batch_confirm_{item_key}",
+                                                  use_container_width=True)
+                discard_clicked = col_no.button("No — skip this file", key=f"batch_discard_{item_key}",
+                                                 use_container_width=True)
+
+            if confirm_clicked:
+                resolved.append(_diff_and_store(division, data, new_record))
+            elif discard_clicked:
+                resolved.append({"icon": "⚪", "name": new_record.source_filename,
+                                  "message": "Skipped — not stored."})
+            else:
+                still_pending.append(item)
+
+        else:  # "reschedule" -- event_id matches, but a different date is on file
+            prior = item["prior_record"]
+            prompt = (f"**{new_record.source_filename}** — event {new_record.event_id} is "
+                      f"already on file for **{prior.event_date}**, this document says "
+                      f"**{new_record.event_date}**. Same event, rescheduled — or a "
+                      f"different booking that happens to reuse this event number?")
+            with st.container(border=True):
+                st.markdown(prompt)
+                col_same, col_diff, col_no = st.columns(3)
+                same_clicked = col_same.button("Same event — link it", key=f"batch_link_{item_key}",
+                                                use_container_width=True)
+                diff_clicked = col_diff.button("Different event — keep both",
+                                                key=f"batch_separate_{item_key}",
+                                                use_container_width=True)
+                discard_clicked = col_no.button("Skip this file", key=f"batch_discard_{item_key}",
+                                                 use_container_width=True)
+
+            if same_clicked:
+                resolved.append(_diff_and_store(division, data, new_record, link_to_prior_date=prior))
+            elif diff_clicked:
+                store.save(client, new_record)
+                resolved.append({"icon": "🟢", "name": new_record.source_filename,
+                                  "message": f"Stored as a separate booking for event "
+                                             f"{new_record.event_id} on {new_record.event_date} "
+                                             f"(the {prior.event_date} booking is kept as-is)."})
+            elif discard_clicked:
+                resolved.append({"icon": "⚪", "name": new_record.source_filename,
+                                  "message": "Skipped — not stored."})
+            else:
+                still_pending.append(item)
+
+    st.session_state[pending_key] = still_pending
+    if resolved:
+        st.success("Resolved just now:")
+        for r in resolved:
+            st.markdown(f"{r['icon']} **{r['name']}** — {r['message']}")
+
+
+_DIVISION_BIRD = {"Good Tidings": "🐓", "Goodies To Go": "🐤"}
+
+
+def process_division(division: str):
+    bird = _DIVISION_BIRD.get(division)
+    if bird:
+        st.markdown(f'<div class="chicken-lane"><span class="chicken-walker">{bird}</span></div>',
+                    unsafe_allow_html=True)
+    st.header(division)
+
+    if client is None:
+        st.error("Firestore isn't configured — set FIRESTORE_CREDENTIALS_PATH "
+                  "(local) or the FIRESTORE_SERVICE_ACCOUNT_JSON secret (cloud). "
+                  "See README.")
+        return
+
+    if not llm_client.is_llm_available():
+        st.info("Set GEMINI_API_KEY to extract contracts — no rule-based "
+                 "fallback exists for reading a document. Free key, no "
+                 "credit card: https://aistudio.google.com/apikey")
+        return
+
+    upload_key = f"upload_{division}"
+    uploaded_files = st.file_uploader(
+        "Contracts (photos or PDFs) — select as many as you like to upload "
+        "a whole batch (e.g. a morning's worth) at once",
+        type=["png", "jpg", "jpeg", "pdf"], key=upload_key,
+        accept_multiple_files=True,
+    )
+
+    button_label = (f"Process {len(uploaded_files)} contract(s)" if uploaded_files
+                     else "Process contract(s)")
+    if st.button(button_label, key=f"process_{division}") and uploaded_files:
+        total = len(uploaded_files)
+        progress = st.progress(0.0)
+        status = st.empty()
+
+        def _on_progress(i, total, name):
+            status.write(f"Reading {i} of {total} with Gemini: {name}")
+            progress.progress(i / total)
+
+        results = _process_upload_batch(division, uploaded_files, on_progress=_on_progress)
+        status.empty()
+        progress.empty()
+
+        st.divider()
+        st.subheader(f"Batch result — {total} file(s)")
+        for r in results:
+            st.markdown(f"{r['icon']} **{r['name']}** — {r['message']}")
+
+    _render_pending_confirmations(division)
+
+
+EASTERN = ZoneInfo("America/New_York")
+
+
+def _render_notification_row(n: dict, dt):
+    """One notification: a badge saying whether it needs action, division +
+    event id, the time right-aligned on the far side of the row, and a
+    click-to-expand detail panel with every change. `dt` is the parsed
+    created_at, already converted to Eastern time (or None if it didn't
+    parse), by the caller -- also used there to place this row in the
+    right day-group."""
+    division = n.get("division", "")
+    notif_id = n.get("_id") or f"{n.get('event_id', '')}_{n.get('created_at', '')}"
+    changes = n.get("changes", [])
+    unreviewed = [(i, c) for i, c in enumerate(changes) if not c.get("reviewed", False)]
+    escalate_n = sum(1 for _, c in unreviewed if c.get("decision") == "escalate")
+    review_n = sum(1 for _, c in unreviewed if c.get("decision") == "review")
+
+    if escalate_n:
+        badge = f"🔴 Act on this — {escalate_n}"
+    elif review_n:
+        badge = f"🟡 Worth a glance — {review_n}"
+    else:
+        # Shouldn't happen -- a notification is only ever saved when at
+        # least one change was found, and it's filtered out of the feed
+        # entirely once every change is reviewed -- but an honest label
+        # beats hiding the gap if it somehow did.
+        badge = "⚪ No changes logged"
+
+    # Always labeled "EST" rather than switching to "EDT" during daylight
+    # saving -- the clock time itself still correctly tracks real New York
+    # local time (via the EASTERN zoneinfo conversion in the caller), only
+    # the suffix is pinned, per explicit request.
+    time_display = (dt.strftime("%I:%M %p EST") if dt is not None
+                     else (n.get("created_at") or "unknown time"))
+
+    open_key = f"notif_open_{notif_id}"
+    if open_key not in st.session_state:
+        st.session_state[open_key] = False
+
+    with st.container(border=True):
+        col_check, col_main, col_time = st.columns([0.5, 4.5, 1])
+        with col_check:
+            if st.checkbox("Mark notification reviewed", key=f"reviewed_{notif_id}",
+                            label_visibility="collapsed"):
+                store.mark_notification_reviewed(client, division, notif_id, True)
+                st.rerun()
+        with col_main:
+            label = f"{badge}  ·  {division}  ·  Event {n.get('event_id', '')}"
+            if st.button(label, key=f"toggle_{notif_id}", use_container_width=True):
+                st.session_state[open_key] = not st.session_state[open_key]
+        with col_time:
+            st.markdown(
+                f'<div style="text-align:right; padding-top:0.6em; '
+                f'color:var(--ink-soft);">{time_display}</div>',
+                unsafe_allow_html=True,
+            )
+
+        if st.session_state[open_key]:
+            st.caption(f"From: {n.get('source_filename') or 'unknown file'}")
+            if not unreviewed:
+                st.success("All changes reviewed.")
+            for i, c in unreviewed:
+                col_c_check, col_c_text = st.columns([0.5, 5.5])
+                with col_c_check:
+                    if st.checkbox("Mark change reviewed", key=f"change_reviewed_{notif_id}_{i}",
+                                    label_visibility="collapsed"):
+                        updated = store.mark_change_reviewed(client, division, notif_id, i, True)
+                        if all(uc.get("reviewed", False) for uc in updated):
+                            store.mark_notification_reviewed(client, division, notif_id, True)
+                        st.rerun()
+                with col_c_text:
+                    icon = "🔴" if c.get("decision") == "escalate" else "🟡"
+                    tag_label = "[RULE]" if c.get("made_by") == "rule" else "[JUDGED]"
+                    st.markdown(f"{icon} **{c.get('label', '')}**  \n"
+                                f"_{tag_label} {c.get('reasoning', '')}_")
+
+
+def _fire_confetti():
+    """One-shot confetti burst, via a Streamlit component iframe running
+    canvas-confetti (loaded from a CDN) -- st.markdown() can't run <script>
+    tags at all (it's inserted as inert HTML, not executed), so this needs
+    components.html(), which renders a real document that does execute
+    scripts. The canvas is appended to window.parent.document (the actual
+    page, not the iframe) so it overlays the whole viewport instead of
+    being clipped to the iframe's own box; it removes itself after the
+    burst finishes."""
+    components.html("""
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+<script>
+(function() {
+  var doc = window.parent.document;
+  var canvas = doc.createElement('canvas');
+  canvas.style.position = 'fixed';
+  canvas.style.top = '0';
+  canvas.style.left = '0';
+  canvas.style.width = '100%';
+  canvas.style.height = '100%';
+  canvas.style.pointerEvents = 'none';
+  canvas.style.zIndex = '99999';
+  doc.body.appendChild(canvas);
+  var burst = confetti.create(canvas, { resize: true, useWorker: true });
+  burst({ particleCount: 160, spread: 100, startVelocity: 45, origin: { y: 0.3 } });
+  setTimeout(function() { canvas.remove(); }, 4000);
+})();
+</script>
+""", height=0)
+
+
+def _fetch_all_notifications() -> list:
+    """Every notification across both divisions, reviewed or not -- shared
+    by render_notifications() and the tab-label unread badge/ring in the
+    layout section below, so both agree on the same fetch."""
+    if client is None:
+        return []
+    all_notifications = []
+    for division in store.DIVISIONS:
+        all_notifications.extend(store.list_notifications(client, division, limit=50))
+    return all_notifications
+
+
+def render_notifications():
+    all_notifications = _fetch_all_notifications()
+    # Fully-reviewed notifications (dismissed outright, or every individual
+    # change checked off) don't show in the feed at all.
+    notifications = [n for n in all_notifications if not n.get("reviewed", False)]
+    notifications.sort(key=lambda n: n.get("created_at", ""), reverse=True)
+
+    unread_count = len(notifications)
+    header_text = f"🔔 Notifications ({unread_count})" if unread_count else "🔔 Notifications"
+    st.header(header_text)
+    st.caption("Every change detected when an uploaded contract was compared "
+               "against what's already on file — grouped by day, newest "
+               "first, across both divisions. Click a notification to see "
+               "exactly what changed.")
+
+    if client is None:
+        st.error("Firestore isn't configured — set FIRESTORE_CREDENTIALS_PATH "
+                  "(local) or the FIRESTORE_SERVICE_ACCOUNT_JSON secret (cloud). "
+                  "See README.")
+        return
+
+    if not notifications:
+        if all_notifications:
+            st.success("All caught up — every notification has been reviewed.")
+            # Fires once per catch-up, not on every rerun of this same
+            # empty state (e.g. switching tabs and back) -- resets below
+            # as soon as a new notification shows up again.
+            if not st.session_state.get("confetti_shown", False):
+                st.session_state["confetti_shown"] = True
+                _fire_confetti()
+        else:
+            st.info("No notifications yet — one gets logged here the next time an "
+                     "uploaded contract differs from what's already on file.")
+        return
+
+    st.session_state["confetti_shown"] = False
+
+    # Group into (day_label, [(notification, parsed_datetime), ...])
+    # buckets, in the same newest-first order as the flat list above --
+    # every notification within a day stays sorted newest-first too, since
+    # it's carried over from that already-sorted list. Timestamps are
+    # stored in UTC (see contract_store.save_notification) but converted
+    # to Eastern here BEFORE computing the day label -- a notification
+    # logged at 11pm Eastern is after midnight UTC, so grouping on the raw
+    # UTC date would put it under the wrong day for a chef reading this in
+    # Eastern time.
+    day_groups = []
+    for n in notifications[:50]:
+        try:
+            dt = datetime.fromisoformat(n.get("created_at", "")).astimezone(EASTERN)
+        except ValueError:
+            dt = None
+        day_label = dt.strftime("%A, %B %d, %Y") if dt is not None else "Unknown date"
+        if day_groups and day_groups[-1][0] == day_label:
+            day_groups[-1][1].append((n, dt))
+        else:
+            day_groups.append((day_label, [(n, dt)]))
+
+    for day_label, day_notifications in day_groups:
+        st.subheader(day_label)
+        for n, dt in day_notifications:
+            _render_notification_row(n, dt)
+        st.divider()
+
+
+def _render_allergen_results(dish_name: str, ingredients: list, results: dict):
+    """Reuses the app's existing card CSS (.field-changed/.menu-removed)
+    rather than plain st.write/st.warning, so this reads consistently with
+    every other finding in the app: amber for a direct, visible mention;
+    red for a hidden carrier, since that's the one a kitchen is likelier
+    to miss precisely because the ingredient name doesn't say it."""
+    st.markdown(f'<div class="ticket"><b>{dish_name}</b></div>', unsafe_allow_html=True)
+    if not results:
+        st.success("No allergens from the tracked category set detected in these ingredients.")
+    else:
+        for category, matches in results.items():
+            label = category.replace("_", " ").upper()
+            for m in matches:
+                if m["match_type"] == "direct":
+                    st.markdown(
+                        f'<div class="field-changed"><b>{label}</b> — direct: '
+                        f'\'{m["source_ingredient"]}\'</div>',
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        f'<div class="menu-removed"><b>{label} — HIDDEN</b>: '
+                        f'\'{m["source_ingredient"]}\' carries {category.replace("_", " ")} '
+                        f'via \'{m["matched_term"]}\'</div>',
+                        unsafe_allow_html=True,
+                    )
+    st.caption(f"Ingredients scanned ({len(ingredients)}): " + ", ".join(ingredients))
+
+
+def _render_event_allergen_box(source_filename: str, data: dict):
+    """ONE bordered box for a whole event's packing list -- every dish's
+    allergen findings listed compactly inside it, rather than a separate
+    big card per match. Every ingredient behind these findings is
+    Gemini's inference (see extract_packing_list_for_allergens()), not a
+    verified read of the document, so every finding gets its own
+    checkbox for the chef to confirm it's actually in the dish -- nothing
+    here is presented as settled fact."""
+    event_id = data.get("event_id", "").strip() or "(no event ID read)"
+    event_date = data.get("event_date", "").strip()
+    header = f"Event {event_id}" + (f" — {event_date}" if event_date else "")
+
+    with st.container(border=True):
+        st.markdown(f"### {header}")
+        st.caption(f"From: {source_filename}")
+
+        conf = data.get("_confidence", "unknown")
+        if conf != "high":
+            icon = "🟡" if conf == "medium" else "🔴"
+            st.warning(f"{icon} Extraction confidence: {conf}. "
+                        f"{data.get('_confidence_notes', '')}")
+
+        menu_items = data.get("menu_items", [])
+        if not menu_items:
+            st.warning("No dishes found on this document.")
+            return
+
+        st.caption("⚠️ Ingredients below are Gemini's best-guess inference from each "
+                   "dish's name/description, not read from a real ingredients list — "
+                   "packing lists don't have one. Check off each allergen once you've "
+                   "confirmed it's actually in the dish. Anything you note below is "
+                   "remembered and flagged automatically the next time this exact "
+                   "dish shows up on a scan.")
+
+        any_findings = False
+        # (dish_name, existing_noted, newly_confirmed_categories) collected
+        # across EVERY dish in this box, saved and rerun ONCE at the very
+        # end -- not per checkbox, not even per dish. Calling st.rerun()
+        # any earlier (right after the first checked box, or even right
+        # after finishing one dish) cuts the rest of this render off
+        # mid-flight, so any checkbox clicked after that point in the same
+        # click-batch never got read before the page reran out from under
+        # it. That was the "some are saving some are not" bug -- this is
+        # the fully robust version: render everything, THEN act once.
+        pending_saves = []
+        for item in menu_items:
+            name = item.get("name", "Scanned dish")
+            ingredients = item.get("ingredients", [])
+            results = allergen_scan.scan_text_ingredients(ingredients)
+            noted = store.get_dish_allergen_note(client, name) if client is not None else []
+            noted_lower = {n.strip().lower() for n in noted}
+
+            st.markdown(f"**{name}**")
+
+            if noted:
+                st.markdown(f"📝 **Already known for this dish:** " + ", ".join(noted))
+
+            # Categories already confirmed/noted for this dish are dropped
+            # from the checkbox list entirely -- once stored, it shows up
+            # as a plain flag above (via `noted`) instead of an
+            # unconfirmed tick-mark to check again. Compared as the RAW
+            # category string on both sides (e.g. "wheat_gluten") -- this
+            # used to compare a space-converted display version against
+            # the raw stored version, which never matched, so a confirmed
+            # checkbox never actually left the pending list and kept
+            # re-saving itself as a duplicate on every single rerun.
+            pending_results = {c: m for c, m in results.items()
+                               if c.lower() not in noted_lower}
+            if noted or pending_results:
+                any_findings = True
+
+            newly_confirmed = []
+            for category, matches in pending_results.items():
+                label = category.replace("_", " ").upper()
+                for idx, m in enumerate(matches):
+                    icon = "🔴" if m["match_type"] == "hidden" else "🟡"
+                    detail = (f"via '{m['matched_term']}' (hidden)" if m["match_type"] == "hidden"
+                              else "direct mention")
+                    # idx breaks ties when the same ingredient/category
+                    # combination appears more than once for a dish (e.g.
+                    # an inferred ingredient list that repeats "sesame
+                    # seeds") -- without it, two structurally identical
+                    # matches produce the same key and Streamlit errors.
+                    key = f"allergen_confirm_{event_id}_{name}_{category}_{idx}_{m['source_ingredient']}"
+                    checked = st.checkbox(
+                        f"{icon} **{label}** — '{m['source_ingredient']}' ({detail})",
+                        key=key,
+                    )
+                    # Defense in depth: even if pending_results somehow let
+                    # an already-noted category through, never re-add it.
+                    if checked and category.lower() not in noted_lower and category not in newly_confirmed:
+                        newly_confirmed.append(category)
+
+            if newly_confirmed:
+                pending_saves.append({"name": name, "base": noted, "values": newly_confirmed})
+
+            if ingredients:
+                st.caption("Inferred ingredients: " + ", ".join(ingredients))
+
+            if client is not None:
+                # Always starts empty -- this is purely for typing NEW
+                # allergens to add, kept visually and functionally
+                # separate from "Already known for this dish" above (which
+                # is read-only display, not an editable field). Saving
+                # merges onto whatever's already stored; it never replaces
+                # the list, so there's no way to accidentally wipe out
+                # prior entries by submitting an incomplete retype.
+                note_key = f"allergen_note_input_{event_id}_{name}"
+                note_input = st.text_input(
+                    "Add a NEW allergen you know about this dish (comma-separated, "
+                    "added to what's already known above)",
+                    value="", key=note_key,
+                )
+                if st.button("Save note", key=f"allergen_note_save_{event_id}_{name}"):
+                    new_allergens = [a.strip() for a in note_input.split(",")
+                                     if a.strip() and a.strip().lower() not in noted_lower]
+                    if new_allergens:
+                        pending_saves.append({"name": name, "base": noted, "values": new_allergens})
+
+            st.divider()
+
+        if pending_saves and client is not None:
+            # Merge every entry per dish before writing ONE final list --
+            # both checkbox confirmations and typed notes are purely
+            # additive now, so there's no ordering/precedence question if
+            # both land in the same batch; they just combine.
+            merged = {}
+            for entry in pending_saves:
+                name = entry["name"]
+                combined = merged.get(name, list(entry["base"]))
+                for v in entry["values"]:
+                    if v.lower() not in {c.lower() for c in combined}:
+                        combined.append(v)
+                merged[name] = combined
+            for name, allergens in merged.items():
+                store.save_dish_allergen_note(client, name, allergens)
+            # A message set here can't just be st.success()'d in place --
+            # st.rerun() below reloads the page before anyone could ever
+            # see it. Stashed in session_state instead, and shown once at
+            # the top of render_allergen_scan() on the render that follows
+            # this rerun, then cleared so it doesn't linger on every
+            # later interaction.
+            st.session_state["allergen_save_success"] = list(merged.keys())
+            st.rerun()
+
+        if not any_findings:
+            st.success("No allergens from the tracked category set inferred or "
+                       "previously noted for any dish.")
+
+
+def render_allergen_scan():
+    st.header("🔎 Allergen Scan")
+    st.caption("Check one dish's ingredients for allergens directly — no contract "
+               "or production sheet needed. Pasting text is instant and free "
+               "(fully local, no API call); a photo or PDF uses Gemini to read "
+               "the ingredients first.")
+
+    scan_mode = st.radio("Input", ["Paste ingredient list", "Upload photo / PDF"],
+                          horizontal=True, key="allergen_mode")
+
+    if scan_mode == "Paste ingredient list":
+        raw = st.text_area(
+            "Ingredients (comma- or newline-separated)",
+            placeholder="chicken thigh, satay sauce, lime, cilantro, caesar dressing, croutons",
+        )
+        if st.button("Scan", key="scan_text") and raw.strip():
+            ingredients = allergen_scan.parse_ingredient_text(raw)
+            results = allergen_scan.scan_text_ingredients(ingredients)
+            _render_allergen_results("Pasted ingredient list", ingredients, results)
+        return
+
+    if not llm_client.is_llm_available():
+        st.info("Set GEMINI_API_KEY to scan a photo — there's no rule-based "
+                 "fallback for reading an image. Free key, no credit card: "
+                 "https://aistudio.google.com/apikey")
+        return
+
+    photos = st.file_uploader(
+        "Photo or PDF of one or more event packing lists — every dish on "
+        "each document gets scanned, grouped into one box per event",
+        type=["png", "jpg", "jpeg", "pdf"], key="allergen_img",
+        accept_multiple_files=True,
+    )
+    if st.button("Scan", key="scan_photo") and photos:
+        scanned = []
+        for i, photo in enumerate(photos, start=1):
+            with st.spinner(f"Reading {i} of {len(photos)} with Gemini: {photo.name}"):
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(photo.name).suffix) as tf:
+                        tf.write(photo.getvalue())
+                        p_path = tf.name
+                    # extract_packing_list_for_allergens(), not
+                    # extract_production_sheet() -- a packing list has no
+                    # real ingredients printed on it at all, just a dish
+                    # name and maybe one description line, so this asks
+                    # Gemini to INFER a plausible ingredient list from
+                    # general culinary knowledge instead of only reading
+                    # literal text. Kept as its own separate extraction
+                    # path specifically so this inference behavior never
+                    # bleeds into extract_production_sheet(), which the
+                    # full compliance pipeline relies on for stricter,
+                    # literal-reading checks.
+                    data = extract.extract_packing_list_for_allergens(p_path)
+                except extract.ExtractionError as e:
+                    st.error(f"{photo.name}: extraction failed: {e}")
+                    continue
+            scanned.append({"source_filename": photo.name, "data": data})
+        # Stored in session_state, not just rendered here -- rendering
+        # only happens inside this `if st.button(...)` block runs ONLY on
+        # the exact rerun the button click caused. Any later interaction
+        # (checking a checkbox, saving a note) triggers its OWN rerun on
+        # which st.button() returns False again, so results rendered only
+        # here would vanish the instant anyone touched a checkbox. This
+        # is what "the page is vanishing" was.
+        st.session_state["allergen_scan_results"] = scanned
+
+    saved_dishes = st.session_state.pop("allergen_save_success", None)
+    if saved_dishes:
+        st.success("Saved allergen info for: " + ", ".join(saved_dishes))
+
+    scans = st.session_state.get("allergen_scan_results", [])
+    for row_start in range(0, len(scans), 2):
+        row = scans[row_start:row_start + 2]
+        cols = st.columns(2)
+        for col, scan in zip(cols, row):
+            with col:
+                _render_event_allergen_box(scan["source_filename"], scan["data"])
+
+
+# ---------------------------------------------------------------------------
+# Layout — one section per division, side by side, never mixed, plus a
+# combined notifications feed.
+# ---------------------------------------------------------------------------
+st.title("🍽️ Contract Version Tracker")
+st.caption("Upload a contract, and it's compared against whatever's already on "
+           "file for that event — every field, every menu item. Good Tidings "
+           "and Goodies To Go are kept in completely separate storage; a "
+           "contract from one is never compared against the other.")
+
+_unread_count = sum(1 for n in _fetch_all_notifications() if not n.get("reviewed", False))
+# The tab label text itself is a FIXED string, "Notifications" -- never
+# "Notifications (N)". st.tabs() re-derives which tab is selected from its
+# own argument list on every rerun, and changing that list's contents
+# (even just the count in one label) was resetting the selection back to
+# the first tab on every click that changed the unread count -- exactly
+# the bug this caused. The count still shows, just in the in-page heading
+# (render_notifications()) instead of the tab pill. Only the ring (a pure
+# CSS ::before insertion, unrelated to the tabs() argument list) still
+# reacts to the count.
+_bell_ring_css = "animation: bell-ring 4s ease-in-out infinite;" if _unread_count else ""
+st.markdown(
+    # Notifications is tab 3 of 4 now that Allergen Scan follows it -- was
+    # :last-child when Notifications itself was the last tab; that
+    # selector would silently start ringing the wrong tab if left as-is.
+    '<style>.stTabs [data-baseweb="tab"]:nth-child(3)::before { content: "🔔 "; '
+    'display: inline-block; transform-origin: 50% 20%; ' + _bell_ring_css + ' }</style>',
+    unsafe_allow_html=True,
+)
+tab_gt, tab_gtg, tab_notifications, tab_allergen = st.tabs(
+    store.DIVISIONS + ["Notifications", "🔎 Allergen Scan"], key="main_tabs")
+with tab_gt:
+    process_division("Good Tidings")
+with tab_gtg:
+    process_division("Goodies To Go")
+with tab_notifications:
+    render_notifications()
+with tab_allergen:
+    render_allergen_scan()

@@ -1,0 +1,22 @@
+__pycache__/
+*.pyc
+.env
+.venv/
+.streamlit/*
+!.streamlit/secrets.toml.example
+!.streamlit/config.toml
+*.egg-info/
+.DS_Store
+
+# Firestore service-account credential — this is a real, sensitive key.
+# Never commit it, whatever you name the downloaded file.
+*service-account*.json
+*firestore-credentials*.json
+umdcatering-*.json
+
+# Real document photos have client PII (names, phones, addresses) —
+# never commit these. See data/real_examples/README.md.
+data/real_examples/contracts/*
+data/real_examples/pull_sheets/*
+!data/real_examples/contracts/.gitkeep
+!data/real_examples/pull_sheets/.gitkeep
