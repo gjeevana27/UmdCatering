@@ -6,36 +6,123 @@ This repo now holds two separate tools:
 
 Upload a contract (photo/PDF), and it's compared against whatever version
 is already on file for that same event — every field, every menu line
-item. Built for one specific real-world problem: a contract changes after
-someone's already acted on the old version, and nobody catches it.
+item, tracked and reviewable over time. Built for one specific real-world
+problem: a contract changes after someone's already acted on the old
+version, and nobody catches it.
+
+### Matching, storage, and reschedules
 
 - **Two completely separate divisions** — Good Tidings and Goodies To Go
   — each in its own Firestore collection. A contract from one is never
-  looked up or compared against the other.
-- **Matched by Event ID + Event Date.** Same ID and date → this is an
-  update, diff every field, then overwrite. Same ID, different date →
-  flagged for you to confirm (reschedule, or a different event reusing
-  the number) rather than silently merged either way. No match at all →
-  stored as a new baseline, nothing to compare yet.
-- **Extracts exactly:** Event ID, event date, event time, location,
-  event type, guest count, the Time & Desc section, and the full menu
-  list (qty-unit, recipe name, and the description underneath each item
-  — every item on the page).
-- **A real decision layer, not just a diff report** (`src/contract_agent.py`).
-  Every change is triaged into **Act on this** (escalate) or **Worth a
-  glance** (review) — deliberately two tiers only, nothing gets silently
-  logged away as "too minor to matter." A small guest-count move still
-  shows up, just less urgently flagged than a venue or menu change.
-  Deterministic rules handle the clear-cut cases (a venue or delivery-time
-  change always escalates; a menu item added or removed always escalates);
-  genuinely ambiguous free-text changes (a reworded special-instructions
-  line, a menu description edit with no quantity change) go to Gemini for
-  a one-line urgency call, the same pattern as the compliance agent's
-  ambiguous-finding review. The agent also doesn't fully trust its own
-  upstream reading: when the document's extraction confidence was low,
-  every "worth a glance" gets promoted to "act on this" instead, since a
-  less-urgent conclusion drawn from a shaky extraction isn't one this
-  system sits on quietly.
+  looked up, compared, or stored against the other.
+- **Matched by (Event ID, Event Date) together**, not Event ID alone —
+  the same event number can legitimately recur on a different date (a
+  different booking reusing an old number), and those must never
+  silently overwrite or get compared against each other.
+  - Exact match on file → an update to a known booking: diff every
+    field, then overwrite that record.
+  - Same Event ID, a *different* date on file → surfaced for an explicit
+    decision: **link it** (a genuine reschedule — diffs against the
+    prior date's record, then retires it, so there's one continuous
+    record per event lineage) or **keep both separate** (a different
+    booking that happens to reuse the number, tracked independently from
+    then on). Never silently merged either way.
+  - No match under any date → stored as a new baseline, nothing to
+    compare yet.
+- **Duplicate-upload detection.** Every stored record keeps a hash of
+  its source file. Re-uploading the exact same file (byte-for-byte) is
+  recognized and skipped before any comparison runs — two separate
+  Gemini reads of the identical image aren't guaranteed to extract every
+  field identically, so diffing a file against itself could otherwise
+  produce a false "change."
+- **Extracts:** Event ID, event date, event time, location (read
+  specifically from the document's `Location:` field, never substituted
+  with a nearby `Event Address:` field even when it looks short or
+  informal — an earlier version of the prompt conflated the two), event
+  type, guest count, the Time & Desc section, the document's own "Print
+  Date/Time" footer stamp, and the full menu list (qty-unit, recipe
+  name, and the description underneath each item).
+
+### Batch upload
+
+Upload a whole morning's worth of contracts at once, per division —
+every file is extracted first, then stored/diffed. If two files land on
+the same (Event ID, Event Date) within the *same batch*, they're
+reordered by the document's own Print Date/Time footer stamp (not
+upload order, which doesn't reflect which one was actually produced
+first) before either touches the database, so the earlier-printed one
+always becomes the baseline and the later one is diffed against it.
+
+### The decision layer (`src/contract_agent.py`)
+
+Every change is triaged into **Act on this** (escalate) or **Worth a
+glance** (review) — deliberately two tiers only, nothing gets silently
+logged away as "too minor to matter." Deterministic rules handle the
+clear-cut cases (a location or delivery-time change always escalates; a
+menu item added, removed, or qty/unit-changed always escalates);
+genuinely ambiguous free-text changes (a reworded special-instructions
+line, a menu description edit with no quantity change) go to Gemini for
+a one-line urgency call.
+
+- **A field that had real content and now reads blank always escalates
+  by rule**, ahead of every other check — a genuine contract edit
+  essentially never wipes a field down to nothing, so this pattern is
+  treated as a likely extraction miss to verify, not a real change,
+  regardless of which field it is.
+- **Text comparisons are whitespace-normalized** before diffing — two
+  extraction calls on identical printed text can come back with
+  different line-break placement (a known Gemini non-determinism), and
+  without this, that alone used to produce a false "changed" finding.
+- **The LLM judgment prompt keeps old/new values structurally separate**
+  from an item's name or any other context, with an explicit instruction
+  to reason only from the literal text given — an earlier version that
+  concatenated everything into one string let the model hallucinate a
+  "change" that referenced a dish's name as if it were part of the field
+  that actually changed.
+- The agent also doesn't fully trust its own upstream reading: when
+  extraction confidence was low, every "worth a glance" gets promoted to
+  "act on this" instead.
+
+### Notifications
+
+A dedicated tab logging every detected change, separate from the upload
+flow itself:
+
+- Grouped by day (Eastern time), newest first; each entry shows a
+  needs-attention badge and a right-aligned timestamp, and expands on
+  click to show exactly what changed.
+- Every notification, and every individual change within it, has its
+  own checkbox — checking one marks it reviewed and it drops out of the
+  feed; once every change in a notification is checked, the whole
+  notification clears automatically.
+- **Unresolved items carry forward.** If an older notification for the
+  same event still has an unchecked item when a newer one is created,
+  that item is folded into the new notification (and the old one
+  retired) — so checking only the latest notification for an event never
+  misses something still outstanding from an earlier one.
+- The tab pill rings and shows an unread count whenever anything's
+  outstanding, and goes quiet once you're caught up.
+
+### Allergen Scan tab
+
+A standalone quick allergen check, folded in from the original
+compliance agent below and extended for real packing lists:
+
+- Paste an ingredient list directly (fully local, zero API calls), or
+  upload one or more packing-list photos/PDFs at once.
+- Packing lists rarely print a real ingredients list — just a dish name
+  and maybe one description line — so this uses its own extraction
+  prompt (`extract_packing_list_for_allergens()`, kept separate from the
+  stricter `extract_production_sheet()` the full compliance pipeline
+  relies on) that asks Gemini to infer a plausible full ingredient list
+  from general culinary knowledge, clearly labeled as inference, never
+  presented as a verified read of the document.
+- Every inferred allergen finding has a confirm checkbox; confirming (or
+  typing in an allergen you already know about a dish) saves it to a
+  persistent, kitchen-wide reference keyed by dish name — the next time
+  that exact dish shows up in any future scan, it's flagged directly
+  instead of asking again.
+- Multiple uploaded documents render side by side, two events per row.
 
 Setup and running instructions: see "Running the Contract Version
 Tracker" below.
@@ -262,8 +349,16 @@ honest about it — see Limitations.
 
 ```
 event-compliance-agent/
-├── app.py                       Streamlit web app (sample / JSON upload / photo-PDF / contract diff / allergen scan)
+├── app.py                       Contract Version Tracker -- divisions / notifications / allergen scan
+├── app_compliance_agent_full.py the original, broader compliance agent (5-tab Streamlit app)
+├── .streamlit/
+│   ├── config.toml              theme (tracked -- no secrets in it)
+│   └── secrets.toml.example     template for Firestore/Gemini secrets on Streamlit Cloud
 ├── src/
+│   ├── contract_store.py        Firestore storage/lookup/diff for the Contract Version Tracker
+│   │                             (event_id+date matching, notifications, dish-allergen notes)
+│   ├── contract_agent.py        decision layer for contract changes (escalate/review, whitespace-
+│   │                             normalized diffing, blank-field-regression rule)
 │   ├── allergen_reference.py    9-category allergen map, direct + hidden-carrier terms
 │   ├── parser.py                loads contract.json / production_sheet.json
 │   │                             + builds objects from extracted (photo/PDF) data
@@ -271,7 +366,8 @@ event-compliance-agent/
 │   ├── discrepancy_engine.py    deterministic fact-finding (no LLM)
 │   ├── llm_client.py            optional Gemini call for ambiguous cases only
 │   ├── extract.py               photo/PDF -> structured JSON via Gemini vision
-│   │                             (contract / production sheet / pull sheet / single-dish schemas)
+│   │                             (contract / production sheet / pull sheet / single-dish /
+│   │                             packing-list-for-allergens schemas)
 │   ├── allergen_scan.py         standalone one-dish allergen scanner (text = free/local)
 │   ├── recall_checker.py        live openFDA recall lookup (real-time, opt-in)
 │   ├── contract_diff.py         diffs two contract versions, flags what changed
@@ -316,14 +412,30 @@ python src/allergen_scan.py --photo path/to/dish.jpg   # needs GEMINI_API_KEY
 Get a free `GEMINI_API_KEY` (no credit card) at
 [aistudio.google.com/apikey](https://aistudio.google.com/apikey).
 
-## Running the web app
+## Running the Contract Version Tracker (`app.py`)
+
+```bash
+pip install -r requirements.txt
+export GEMINI_API_KEY=...             # required -- extraction has no rule-based fallback
+export FIRESTORE_CREDENTIALS_PATH=... # required -- path to a service-account JSON file
+# export APP_PASSCODE=...             # optional -- gates access if deploying publicly
+streamlit run app.py
+```
+
+Opens at `http://localhost:8501`. Four tabs: **Good Tidings** and
+**Goodies To Go** (each with its own upload + batch processing), the
+**Notifications** review queue, and **Allergen Scan** (the standalone
+dish/packing-list checker). See "Deploying" below for Firestore setup on
+Streamlit Cloud/Hugging Face Spaces.
+
+## Running the full compliance agent (`app_compliance_agent_full.py`)
 
 ```bash
 pip install -r requirements.txt
 export GEMINI_API_KEY=...   # optional: enables photo/PDF extraction, the
                               # photo mode of the allergen scanner, and
                               # LLM-assisted ambiguous-case review
-streamlit run app.py
+streamlit run app_compliance_agent_full.py
 ```
 
 Opens at `http://localhost:8501`. Five tabs: sample events, your own JSON,
@@ -333,20 +445,27 @@ since it makes a real network call to api.fda.gov.
 
 ## Deploying
 
-The web app is a normal Streamlit app, so any of these work (all free):
+Both web apps are normal Streamlit apps, so any of these work (all free):
 
 - **Streamlit Community Cloud** — push this repo to GitHub, go to
   [share.streamlit.io](https://share.streamlit.io), "New app," point it at
-  this repo and `app.py`. Add `GEMINI_API_KEY` under the app's Secrets if
-  you want photo/PDF extraction and the LLM-assisted review live.
+  this repo. For `app_compliance_agent_full.py`, add `GEMINI_API_KEY`
+  under the app's Secrets. For **`app.py`** (the Contract Version
+  Tracker), it also needs Firestore credentials — paste the
+  service-account JSON's full contents as a secret named
+  `FIRESTORE_SERVICE_ACCOUNT_JSON` (see `.streamlit/secrets.toml.example`
+  for the exact format), plus `GEMINI_API_KEY` and, optionally,
+  `APP_PASSCODE` if the deployment will be public.
 - **Hugging Face Spaces** — new Space, SDK: Streamlit, push this repo (or
-  connect the GitHub repo). Add `GEMINI_API_KEY` as a Space secret.
+  connect the GitHub repo). Same secrets as above, added as Space secrets.
 
 A note on cost/safety when deploying publicly: Gemini's free tier is
 generous for personal use, but a public URL means anyone who finds it can
-trigger calls against your key. Keep the key out of a public deployment's
-secrets if you're not actively demoing it, or take the deployment down
-between demos, rather than leaving a key-enabled instance open indefinitely.
+trigger calls against your key (and, for `app.py`, read/write your
+Firestore data if `APP_PASSCODE` isn't set). Keep keys out of a public
+deployment's secrets if you're not actively demoing it, set a passcode,
+or take the deployment down between demos, rather than leaving an
+open instance running indefinitely.
 
 The static demo (`demo/index.html`) is separate from the web app — it needs
 no Python backend at all, so it can go on **GitHub Pages** directly: push
