@@ -1,9 +1,10 @@
 # Event Compliance Agent
 
-Catering-operations review tooling: contract-version tracking with automatic
-change detection, a per-event allergen scanner, and a deterministic-first
-escalate/review decision layer that only calls an LLM where rules genuinely
-can't resolve ambiguity.
+An autonomous decision agent for catering-operations compliance: it
+perceives contracts (photo/PDF), remembers prior versions, reasons about
+what changed, and acts — escalating, flagging for review, or clearing
+each finding on its own, calling an LLM only where its own rules can't
+resolve ambiguity, and logging why behind every decision.
 
 **Full rationale, architecture, and known limitations:**
 [docs/DESIGN.md](docs/DESIGN.md).
@@ -12,6 +13,17 @@ can't resolve ambiguity.
 
 Python · Streamlit · Google Gemini API (`gemini-3.5-flash-lite`) ·
 Google Cloud Firestore · python-dateutil
+
+## Agent Capabilities
+
+| Capability | Implementation |
+|---|---|
+| **Perception** | `extract.py` — Gemini vision turns a photographed/scanned contract into structured state |
+| **Memory** | Firestore — full per-event change history, plus a per-dish allergen reference that accumulates across every scan |
+| **Reasoning** | `contract_agent.py` / `agent.py` — rule engine + Gemini judgment call for genuinely ambiguous cases |
+| **Action** | autonomous escalate / review / auto-clear decision on every change, notification generation, no human step required to trigger it |
+| **Guardrails** | daily call-rate circuit breaker, output/schema validation, a hard-coded rule an allergen conflict can never be auto-cleared |
+| **Explainability** | every decision is logged with the reasoning that produced it — no black-box output |
 
 ## Features
 
@@ -116,7 +128,8 @@ optional live recall check → `agent.py::decide()`):
 | App framework | Streamlit | `app.py` (primary); legacy script also runnable |
 | LLM | Gemini API (`gemini-3.5-flash-lite`) | extraction (vision), ambiguous-case judgment |
 | Storage | Google Cloud Firestore | per-division records, notifications, dish-allergen reference |
-| Decision layer | pure Python (`contract_agent.py` / `agent.py`) | deterministic rules, no LLM in the fact-finding path |
+| Reasoning / decision engine | `contract_agent.py` / `agent.py` | autonomous escalate / review / auto-clear on every change, Gemini consulted for ambiguous judgment calls |
+| Agent memory | Firestore change history + persistent allergen reference | carries context across runs rather than treating each upload as stateless |
 | Rate/cost control | `rate_guard.py` | shared daily call-count circuit breaker |
 | Live data (legacy app only) | openFDA Food Enforcement API | recall exposure check, opt-in |
 
