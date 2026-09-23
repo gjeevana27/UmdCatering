@@ -4,7 +4,7 @@ REM folder for contract files and auto-routes them. Stays running in this
 REM window; closing the window (or Ctrl+C) stops it.
 REM
 REM Configure via a .env file in this same folder (not committed to git --
-REM copy .env.example to .env and fill in real values):
+REM see .env.example):
 REM   GEMINI_API_KEY=...
 REM   FIRESTORE_CREDENTIALS_PATH=...
 REM   INTAKE_FOLDER_PATH=C:\Good_to_Go     (optional -- defaults to intake\
