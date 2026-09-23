@@ -188,7 +188,6 @@ event-compliance-agent/
 │   ├── labeled_llm_judgments.json / evaluate_llm_judgment.py    llm_client.py eval (live)
 │   ├── evaluate_extraction.py                                   extract.py eval (live, needs ground truth)
 │   └── label_extraction_example.py                              helper: drafts ground truth from a real photo
-├── demo/                        self-contained interactive walkthrough (static HTML)
 ├── docs/DESIGN.md               full rationale, architecture, design decisions, limitations
 └── requirements.txt
 ```
@@ -230,8 +229,7 @@ Free `GEMINI_API_KEY` (no credit card):
 `app.py` is a plain Streamlit app — Streamlit Community Cloud or Hugging
 Face Spaces both work free. It additionally needs the Firestore
 service-account JSON pasted as a `FIRESTORE_SERVICE_ACCOUNT_JSON` secret
-(see `.streamlit/secrets.toml.example`). The static demo (`demo/index.html`)
-needs no backend at all and can be served directly from GitHub Pages.
+(see `.streamlit/secrets.toml.example`).
 
 A public deployment means anyone with the URL can trigger calls against
 your key (and read/write your Firestore data without `APP_PASSCODE` set)

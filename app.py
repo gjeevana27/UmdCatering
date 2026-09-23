@@ -53,7 +53,7 @@ import llm_client  # noqa: E402
 st.set_page_config(page_title="Good-to-Go", page_icon="🍽️", layout="wide")
 
 # ---------------------------------------------------------------------------
-# Visual identity — same tokens as demo/index.html, ported to Streamlit.
+# Visual identity — color/font tokens.
 # ---------------------------------------------------------------------------
 st.markdown("""
 <link rel="preconnect" href="https://fonts.googleapis.com">
