@@ -1,5 +1,5 @@
 {
-  "_note": "Hand-labeled synthetic FieldChange/MenuChange scenarios for contract_agent.py's decision layer (the Contract Version Tracker's escalate/review classifier). Deliberately scoped to RULE-decided cases only -- no GEMINI_API_KEY needed, fully deterministic, no network dependency, same testing philosophy as labeled_cases.json for agent.py's own eval. Genuinely ambiguous free-text changes (an event_type reword, a menu description edit) go through llm_client.judge_contract_change() instead of a rule and aren't covered here -- see docs/DESIGN.md's Limitations section for why LLM-judged paths are validated by manual review rather than an automated eval.",
+  "_note": "Hand-labeled synthetic FieldChange/MenuChange scenarios for contract_agent.py's decision layer (Good-to-Go's escalate/review classifier). Deliberately scoped to RULE-decided cases only -- no GEMINI_API_KEY needed, fully deterministic, no network dependency, same testing philosophy as labeled_cases.json for agent.py's own eval. Genuinely ambiguous free-text changes (an event_type reword, a menu description edit) go through llm_client.judge_contract_change() instead of a rule and aren't covered here -- see docs/DESIGN.md's Limitations section for why LLM-judged paths are validated by manual review rather than an automated eval.",
   "cases": [
     {
       "id": "location_change",

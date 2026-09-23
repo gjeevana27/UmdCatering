@@ -51,7 +51,7 @@ The repo also carries an earlier, broader prototype
 parked, not actively developed, but left in and still runnable since it
 covers allergen/contract-vs-production-sheet checks `app.py` doesn't.
 
-## Architecture — Contract Version Tracker (`app.py`)
+## Architecture — Good-to-Go (`app.py`)
 
 ```
                     Streamlit UI (app.py)
@@ -169,13 +169,13 @@ miss behind a decent blended number.
 
 ```
 event-compliance-agent/
-├── app.py                       Contract Version Tracker -- divisions / notifications / allergen scan
+├── app.py                       Good-to-Go -- divisions / notifications / allergen scan
 ├── app_compliance_agent_full.py the original, broader compliance agent (5-tab Streamlit app)
 ├── .streamlit/
 │   ├── config.toml              theme (tracked -- no secrets in it)
 │   └── secrets.toml.example     template for Firestore/Gemini secrets on Streamlit Cloud
 ├── src/
-│   ├── contract_store.py        Firestore storage/lookup/diff for the Contract Version Tracker
+│   ├── contract_store.py        Firestore storage/lookup/diff for Good-to-Go
 │   ├── contract_agent.py        decision layer for contract changes (see rule table above)
 │   ├── allergen_reference.py    9-category allergen map, direct + hidden-carrier terms
 │   ├── parser.py                loads contract.json / production_sheet.json
@@ -200,7 +200,7 @@ event-compliance-agent/
 
 ## Getting Started
 
-### Contract Version Tracker (`app.py`)
+### Good-to-Go (`app.py`)
 
 ```bash
 pip install -r requirements.txt

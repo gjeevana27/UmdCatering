@@ -3,7 +3,7 @@
 Full rationale behind both apps in this repo. The [README](../README.md)
 covers what to run and how; this is the why and the fine print.
 
-## Contract Version Tracker (`app.py`)
+## Good-to-Go (`app.py`)
 
 ### Matching, storage, and reschedules
 

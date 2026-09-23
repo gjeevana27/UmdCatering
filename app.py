@@ -1,5 +1,5 @@
 """
-Contract Version Tracker — Good Tidings / Goodies To Go
+Good-to-Go — Good Tidings / Goodies To Go
 
 Core purpose: upload a contract (photo/PDF), extract the event fields,
 compare against whatever is already stored for that event, and tell the
@@ -52,7 +52,7 @@ import contract_store as store  # noqa: E402
 import extract  # noqa: E402
 import llm_client  # noqa: E402
 
-st.set_page_config(page_title="Contract Version Tracker", page_icon="🍽️", layout="wide")
+st.set_page_config(page_title="Good-to-Go", page_icon="🍽️", layout="wide")
 
 # ---------------------------------------------------------------------------
 # Visual identity — same tokens as demo/index.html, ported to Streamlit.
@@ -151,7 +151,7 @@ def require_passcode():
         return  # no passcode configured -- open access (fine for local dev)
     if st.session_state.get("authed"):
         return
-    st.title("🍽️ Contract Version Tracker")
+    st.title("🍽️ Good-to-Go")
     code = st.text_input("Passcode", type="password")
     if st.button("Enter"):
         if code == correct:
@@ -1088,7 +1088,7 @@ def render_allergen_scan():
 # Layout — one section per division, side by side, never mixed, plus a
 # combined notifications feed.
 # ---------------------------------------------------------------------------
-st.title("🍽️ Contract Version Tracker")
+st.title("🍽️ Good-to-Go")
 st.caption("Upload a contract, and it's compared against whatever's already on "
            "file for that event — every field, every menu item. Good Tidings "
            "and Goodies To Go are kept in completely separate storage; a "
