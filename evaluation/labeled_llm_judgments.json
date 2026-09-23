@@ -1,0 +1,82 @@
+{
+  "_note": "Hand-labeled scenarios for llm_client.judge_contract_change() -- the ambiguous-change judgment layer contract_agent.py falls back to when a rule can't decide (a reworded event_type, a menu description edit). Every case here is deliberately chosen to have a CLEAR, defensible expected category (escalate vs review) -- not a genuinely 50/50 borderline call -- so a mismatch is a meaningful signal about the model's judgment, not just noise from picking an unfair test case. See evaluate_llm_judgment.py: this is a LIVE eval, makes real billed API calls, and is never auto-run by anything else.",
+
+  "cases": [
+    {
+      "id": "event_type_service_style_change",
+      "field_label": "event type",
+      "old_value": "Pick Up/ No Fee",
+      "new_value": "Full Service Plated Dinner",
+      "context": "event contract field change",
+      "expected_decision": "escalate",
+      "why": "a self-serve pickup becoming a fully staffed plated dinner is a fundamentally different operational commitment -- staffing, equipment, timing all change"
+    },
+    {
+      "id": "event_type_capitalization_only",
+      "field_label": "event type",
+      "old_value": "EVENT - LUNCH BUFFET (OP)",
+      "new_value": "EVENT - LUNCH BUFFET (op)",
+      "context": "event contract field change",
+      "expected_decision": "review",
+      "why": "only a capitalization difference -- no operational meaning changed"
+    },
+    {
+      "id": "description_adds_tree_nuts",
+      "field_label": "description",
+      "old_value": "Grilled chicken with lemon herb sauce",
+      "new_value": "Grilled chicken with lemon herb sauce and toasted almonds",
+      "context": "menu item description change",
+      "item_label": "Herb Grilled Chicken",
+      "expected_decision": "escalate",
+      "why": "adds a tree-nut ingredient to the dish -- allergen-relevant, operationally significant"
+    },
+    {
+      "id": "description_synonym_swap",
+      "field_label": "description",
+      "old_value": "Fresh seasonal fruit tray",
+      "new_value": "Fresh seasonal fruit platter",
+      "context": "menu item description change",
+      "item_label": "Seasonal Fruit Display",
+      "expected_decision": "review",
+      "why": "tray vs. platter is a wording synonym, not a content change"
+    },
+    {
+      "id": "event_type_drop_off_to_staffed_bar",
+      "field_label": "event type",
+      "old_value": "Delivery drop off",
+      "new_value": "Full-service staffed event with open bar",
+      "context": "event contract field change",
+      "expected_decision": "escalate",
+      "why": "adding staffing and alcohol service to what was an unstaffed drop-off is a major operational and logistical change"
+    },
+    {
+      "id": "description_rolls_rewording",
+      "field_label": "description",
+      "old_value": "Includes rolls and butter",
+      "new_value": "Includes dinner rolls and butter",
+      "context": "menu item description change",
+      "item_label": "Bread Service",
+      "expected_decision": "review",
+      "why": "cosmetic wording, same items"
+    },
+    {
+      "id": "description_adds_walnuts",
+      "field_label": "description",
+      "old_value": "House salad with vinaigrette",
+      "new_value": "House salad with candied walnuts and vinaigrette",
+      "context": "menu item description change",
+      "item_label": "House Salad",
+      "expected_decision": "escalate",
+      "why": "adds a tree-nut ingredient -- allergen-relevant"
+    },
+    {
+      "id": "event_type_confirmation_note",
+      "field_label": "event type",
+      "old_value": "Buffet Lunch",
+      "new_value": "Buffet Lunch (Confirmed)",
+      "context": "event contract field change",
+      "expected_decision": "review",
+      "why": "adds a confirmation note, no operational detail changed"
+    }
+  ]
+}

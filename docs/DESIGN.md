@@ -375,18 +375,19 @@ common call points), not specific to either one:
   recall — a real deployment would want to match against a supplier's
   actual product/lot numbers where available.
 - **Small eval sets, and real coverage gaps remain.** 3 of the 4 sample
-  events (`agent.py`'s eval) and 8 synthetic scenarios
-  (`contract_agent.py`'s eval, `evaluate_contract_agent.py`) are all
-  hand-labeled by one reviewer. Both evals are also deliberately scoped
-  to what's fully deterministic and needs no `GEMINI_API_KEY` — neither
-  covers an LLM-judged path (`agent.py`'s ambiguous-finding review,
-  `contract_agent.py`'s ambiguous field/description judgment), nor does
-  either cover extraction accuracy itself, `contract_diff.py`,
-  `pull_sheet_check.py`, or the standalone allergen scanners. A
-  production version needs a larger, multi-reviewer-labeled set drawn
-  from real (anonymized) past events, and some way to evaluate the
-  LLM-judged paths specifically (e.g. a mocked/recorded set of model
-  responses) rather than leaving them to manual review only.
+  events (`agent.py`'s eval), 8 synthetic scenarios
+  (`contract_agent.py`'s eval, `evaluate_contract_agent.py`), and 8
+  scenarios against the live model (`llm_client.py`'s eval,
+  `evaluate_llm_judgment.py`) are all hand-labeled by one reviewer, and
+  all three are still narrow: `agent.py`'s own ambiguous-finding
+  judgment call (`judge_ambiguous_finding()`, as opposed to
+  `contract_agent.py`'s `judge_contract_change()`, which the live eval
+  does cover) has no automated eval at all, and neither does extraction
+  accuracy itself, `contract_diff.py`, `pull_sheet_check.py`, or the
+  standalone allergen scanners. A production version needs a larger,
+  multi-reviewer-labeled set drawn from real (anonymized) past events,
+  and eval coverage extended to `judge_ambiguous_finding()` the same way
+  `judge_contract_change()` now has it.
 - **This is a decision-support tool.** It never approves a menu or clears
   an allergen conflict on its own authority. Every escalation and every
   "needs review" item is a recommendation for a human to act on, not an

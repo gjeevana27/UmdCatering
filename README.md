@@ -102,9 +102,33 @@ qty-changed menu items, and the blank-field-regression rule:
 | Decision accuracy | 1.00 (8/8) |
 
 Deliberately scoped to rule-decided cases only — no `GEMINI_API_KEY`
-needed, fully deterministic. LLM-judged paths (an `event_type` reword, a
-menu description edit) aren't covered by an automated eval; see
-[Limitations](docs/DESIGN.md#limitations).
+needed, fully deterministic.
+
+**The LLM judgment layer itself** (`llm_client.judge_contract_change()`)
+has a third eval — the only one of the three that makes real API calls,
+so it's kept opt-in rather than bundled with the other two:
+
+```bash
+export GEMINI_API_KEY=...
+python evaluation/evaluate_llm_judgment.py
+```
+
+Scored against 8 hand-labeled scenarios (see
+`evaluation/labeled_llm_judgments.json`), each chosen to have a clear,
+defensible expected category — an `event_type` change reflecting a real
+operational shift vs. a wording-only tweak, a menu description that adds
+an allergen-relevant ingredient vs. a synonym swap:
+
+| Metric | Score |
+|---|---|
+| Decision-category accuracy (live) | 1.00 (8/8) |
+
+Costs a small amount (a handful of short text-only calls, well under a
+cent total) and isn't bit-for-bit deterministic run to run the way the
+other two evals are — it's scored on decision *category* (escalate vs.
+review), which is far more stable than the model's exact wording. Never
+auto-run by anything else, same reasoning as `--live-recalls` being
+opt-in.
 
 ## Project structure
 
@@ -137,10 +161,12 @@ event-compliance-agent/
 │   └── agent.py                 decision layer + audit trail + report
 ├── data/sample_events/          4 sample events (995, 1002, 1140, 2201 — contract-change demo)
 ├── evaluation/
-│   ├── labeled_cases.json           hand-labeled ground truth (agent.py)
-│   ├── evaluate.py                  precision/recall/safety-recall scorer (agent.py)
+│   ├── labeled_cases.json            hand-labeled ground truth (agent.py)
+│   ├── evaluate.py                   precision/recall/safety-recall scorer (agent.py)
 │   ├── labeled_contract_changes.json hand-labeled ground truth (contract_agent.py)
-│   └── evaluate_contract_agent.py   decision-accuracy scorer (contract_agent.py)
+│   ├── evaluate_contract_agent.py    decision-accuracy scorer (contract_agent.py)
+│   ├── labeled_llm_judgments.json    hand-labeled ground truth (llm_client.py)
+│   └── evaluate_llm_judgment.py      LIVE eval, real API calls, opt-in (llm_client.py)
 ├── demo/                        self-contained interactive walkthrough (static HTML)
 ├── docs/DESIGN.md               full rationale, architecture, design decisions, limitations
 └── requirements.txt
