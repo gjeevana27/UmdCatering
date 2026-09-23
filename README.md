@@ -132,9 +132,7 @@ export GEMINI_API_KEY=...
 export FIRESTORE_CREDENTIALS_PATH=...
 python src/intake_agent.py
 ```
-Stop with Ctrl+C. Logs to both the console and `intake/_logs/intake_agent.log`.
-On Windows, `start_intake_agent.bat` does the same thing as a double-click
-— no terminal needed, stays open showing the log output.
+Stop with Ctrl+C. Logs to both the console and `intake/intake_agent.log`.
 
 ## Decision rules (`contract_agent.py`)
 
@@ -226,7 +224,6 @@ scanner. See [docs/DESIGN.md#limitations](docs/DESIGN.md#limitations).
 ```
 event-compliance-agent/
 ├── app.py                       Good-to-Go -- divisions / notifications / allergen scan
-├── start_intake_agent.bat       double-click launcher for the intake agent (Windows)
 ├── .streamlit/
 │   ├── config.toml              theme (tracked -- no secrets in it)
 │   └── secrets.toml.example     template for Firestore/Gemini secrets on Streamlit Cloud
@@ -241,8 +238,7 @@ event-compliance-agent/
 │   └── intake_agent.py          watches a local folder, classifies + auto-routes contracts
 ├── intake/                      gitignored -- watched folder, real customer documents (local only)
 │   ├── processed/                moved here after successful routing
-│   ├── needs_review/             moved here + a .txt note, needs a human
-│   └── _logs/                    intake_agent.log (kept out of the inbox itself)
+│   └── needs_review/             moved here + a .txt note, needs a human
 ├── data/real_examples/          gitignored -- real photos + hand-labeled ground truth (local only)
 │   └── contracts/ground_truth/  ground truth for evaluate_extraction.py
 ├── evaluation/
