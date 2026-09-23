@@ -160,9 +160,11 @@ def _build_tools(client, division: str) -> list:
         return "\n\n".join(blocks)
 
     def get_dish_allergen_note(dish_name: str) -> str:
-        """Returns any chef-confirmed allergens already on file for this exact dish name."""
+        """Returns any chef-confirmed allergens already on file for this exact dish name. Distinguishes "never checked" from "checked, confirmed none" -- these are different facts, don't phrase them the same way."""
         notes = store.get_dish_allergen_note(client, dish_name)
-        return ", ".join(notes) if notes else "nothing on file for this dish"
+        if not notes:
+            return "not yet checked -- no note on file for this dish at all"
+        return f"confirmed allergens on file: {', '.join(notes)}"
 
     def check_known_allergens(dish_name_or_ingredient_text: str) -> str:
         """Scans this text against the kitchen's allergen reference for direct or hidden-carrier allergen matches."""
@@ -175,10 +177,19 @@ def _build_tools(client, division: str) -> list:
             get_dish_allergen_note, check_known_allergens]
 
 
-def ask(client, division: str, question: str) -> str:
+def ask(client, division: str, question: str, history: list | None = None) -> str:
     """
     Answers ONE question about this division's stored data.
+
+    history: prior turns from THIS SAME conversation, oldest first, as
+    [{"role": "user"|"assistant", "content": str}, ...] -- pass the
+    caller's own chat history here (not including `question` itself) so
+    a follow-up like "now tell me the allergens" or a dish referenced
+    only loosely ("the fruit tray") can be resolved against what was
+    already said/shown earlier in the conversation, instead of every
+    question being answered as if it's the first message ever sent.
+
     Callers MUST check llm_client.is_llm_available() first.
     """
     tools = _build_tools(client, division)
-    return llm_client.run_tool_loop(SYSTEM_PROMPT, question, tools, max_turns=4)
+    return llm_client.run_tool_loop(SYSTEM_PROMPT, question, tools, max_turns=4, history=history)

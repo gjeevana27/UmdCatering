@@ -1203,10 +1203,13 @@ def _render_ask_content():
 
     question = st.chat_input(f"Ask about {division}...")
     if question:
+        prior_turns = list(st.session_state[history_key])  # BEFORE appending this
+        # question -- ask_agent.ask()'s history param is prior COMPLETED
+        # turns only, not the current one (that's passed separately).
         st.session_state[history_key].append({"role": "user", "content": question})
         with st.spinner("Looking..."):
             try:
-                answer = ask_agent.ask(client, division, question)
+                answer = ask_agent.ask(client, division, question, history=prior_turns)
             except Exception as e:
                 answer = f"Something went wrong: {e}"
         st.session_state[history_key].append({"role": "assistant", "content": answer})

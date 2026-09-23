@@ -172,16 +172,17 @@ Respond ONLY as JSON: {{"decision": "...", "reasoning": "one sentence"}}"""
 
 
 def run_tool_loop(system_prompt: str, user_message: str, tools: list, *,
-                   max_turns: int = 4) -> str:
+                   max_turns: int = 4, history: list | None = None) -> str:
     """
     Runs a manually-controlled Gemini function-calling loop -- used by
-    investigation_agent.py and (later) the read-only chatbot. Deliberately
-    NOT the google-genai SDK's automatic function calling (which executes
-    tool calls and loops internally, inside one generate_content() call):
-    that would give rate_guard no hook to check before each underlying
-    model call, breaking the guarantee every other Gemini call in this
-    project already has -- checked before every single attempt, not just
-    once per user action.
+    investigation_agent.py (one-shot, no history) and the Ask chatbot
+    (multi-turn, history passed in). Deliberately NOT the google-genai
+    SDK's automatic function calling (which executes tool calls and
+    loops internally, inside one generate_content() call): that would
+    give rate_guard no hook to check before each underlying model call,
+    breaking the guarantee every other Gemini call in this project
+    already has -- checked before every single attempt, not just once
+    per user action.
 
     `tools`: plain Python callables, each with type hints and a docstring
     -- both are used to build the tool's schema automatically
@@ -189,6 +190,20 @@ def run_tool_loop(system_prompt: str, user_message: str, tools: list, *,
     is needed per tool. Each callable should return something JSON-
     serializable (a string, list, or plain dict) -- not a dataclass or
     other object the API can't serialize back to the model.
+
+    `history`: optional prior COMPLETED turns as
+    [{"role": "user"|"assistant", "content": str}, ...], oldest first --
+    NOT including the current `user_message`, which is passed
+    separately. Without this, every call starts a brand-new conversation
+    with zero memory of anything said earlier, even if a UI displays
+    that earlier conversation -- displaying history and actually sending
+    it to the model are two different things, and only one of them
+    happened before this parameter existed. Gemini's own role name for
+    an assistant turn is "model", not "assistant" (converted here so
+    callers can keep using whatever role string their own chat UI
+    already stores). Capped to the last 10 entries -- enough for a real
+    back-and-forth without letting the context (and so the cost) grow
+    unboundedly as a conversation gets long.
 
     Each turn: rate_guard-checked, sent to Gemini; if the model calls a
     tool, it's executed locally (never allowed to error the whole loop --
@@ -214,7 +229,12 @@ def run_tool_loop(system_prompt: str, user_message: str, tools: list, *,
         tools=[types.Tool(function_declarations=declarations)],
         system_instruction=system_prompt,
     )
-    contents = [types.Content(role="user", parts=[types.Part.from_text(text=user_message)])]
+    contents = []
+    for turn in (history or [])[-10:]:
+        role = "model" if turn.get("role") == "assistant" else "user"
+        contents.append(types.Content(role=role,
+                                       parts=[types.Part.from_text(text=turn.get("content", ""))]))
+    contents.append(types.Content(role="user", parts=[types.Part.from_text(text=user_message)]))
 
     for _ in range(max_turns):
         try:

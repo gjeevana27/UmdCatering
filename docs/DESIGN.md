@@ -154,6 +154,21 @@ don't map to a specific button anywhere else in the app. Surfaced as a
 tab — opens as a popup (`st.dialog`) so it's reachable from wherever you
 already are instead of needing to navigate away first.
 
+- **Conversation history is actually sent to the model, not just
+  displayed.** `llm_client.run_tool_loop()` takes an optional `history`
+  param -- without it, every question started a brand-new conversation
+  with zero memory of anything said earlier, even though `app.py`'s UI
+  displayed the full chat history the whole time. Displaying history
+  and sending it to the model turned out to be two different things,
+  and only one of them happened before this existed: a follow-up like
+  "now tell me the allergens" or a dish referenced loosely ("the fruit
+  tray") couldn't be resolved against something shown two messages
+  earlier in the SAME visible conversation. Capped to the last 10
+  entries to keep cost bounded as a conversation gets long. Gemini's own
+  role name for an assistant turn is `"model"`, not `"assistant"` --
+  converted at the `llm_client` boundary so `app.py`'s chat history can
+  keep using the same role strings `st.chat_message`-style code already
+  used.
 - **The floating button is a real `st.button()`, not an injected HTML
   element.** Positioned via CSS targeting the `st-key-<key>` class
   Streamlit adds to a container given a `key` (a stable, documented
