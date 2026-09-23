@@ -1,0 +1,76 @@
+{
+  "_note": "Hand-labeled synthetic FieldChange/MenuChange scenarios for contract_agent.py's decision layer (the Contract Version Tracker's escalate/review classifier). Deliberately scoped to RULE-decided cases only -- no GEMINI_API_KEY needed, fully deterministic, no network dependency, same testing philosophy as labeled_cases.json for agent.py's own eval. Genuinely ambiguous free-text changes (an event_type reword, a menu description edit) go through llm_client.judge_contract_change() instead of a rule and aren't covered here -- see docs/DESIGN.md's Limitations section for why LLM-judged paths are validated by manual review rather than an automated eval.",
+  "cases": [
+    {
+      "id": "location_change",
+      "type": "field",
+      "field": "location",
+      "old_value": "Stamp",
+      "new_value": "Chapel",
+      "expected_decision": "escalate",
+      "why": "location is an always-escalate field -- delivery/logistics depend on it directly, regardless of magnitude"
+    },
+    {
+      "id": "event_time_change",
+      "type": "field",
+      "field": "event_time",
+      "old_value": "12:45 PM - 1:45 PM",
+      "new_value": "1:00 PM - 2:00 PM",
+      "expected_decision": "escalate",
+      "why": "event_time is an always-escalate field, same reasoning as location"
+    },
+    {
+      "id": "guest_count_large_increase",
+      "type": "field",
+      "field": "guest_count",
+      "old_value": "60",
+      "new_value": "75",
+      "expected_decision": "escalate",
+      "why": "25% increase, above the SIGNIFICANT_QUANTITY_CHANGE threshold (15%)"
+    },
+    {
+      "id": "guest_count_small_increase",
+      "type": "field",
+      "field": "guest_count",
+      "old_value": "100",
+      "new_value": "105",
+      "expected_decision": "review",
+      "why": "5% increase, below the significant-change threshold -- still shown, just not urgent"
+    },
+    {
+      "id": "field_blanked_out",
+      "type": "field",
+      "field": "location",
+      "old_value": "Chapel",
+      "new_value": "",
+      "expected_decision": "escalate",
+      "why": "a field with real content going blank is treated as a likely extraction miss, always escalated by rule ahead of every other check"
+    },
+    {
+      "id": "menu_item_added",
+      "type": "menu",
+      "change_type": "added",
+      "recipe_name": "BYO Sandwich Platter - Turkey & Cheddar",
+      "expected_decision": "escalate",
+      "why": "any menu item added is escalated unconditionally, regardless of magnitude"
+    },
+    {
+      "id": "menu_item_removed",
+      "type": "menu",
+      "change_type": "removed",
+      "recipe_name": "Assorted Sodas",
+      "expected_decision": "escalate",
+      "why": "any menu item removed is escalated unconditionally"
+    },
+    {
+      "id": "menu_qty_changed",
+      "type": "menu",
+      "change_type": "changed",
+      "recipe_name": "Mixed Green Salad",
+      "old_qty": "33.00-EACH",
+      "new_qty": "40.00-EACH",
+      "expected_decision": "escalate",
+      "why": "a quantity/unit change on an existing item is a rule-decidable prep-volume fact, always escalated"
+    }
+  ]
+}

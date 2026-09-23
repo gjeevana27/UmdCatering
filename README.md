@@ -84,6 +84,28 @@ aren't the same failure, and averaging them would let a safety-critical
 miss hide behind an otherwise decent score. (This eval set is small —
 see [Limitations](docs/DESIGN.md#limitations).)
 
+**Contract Version Tracker's decision layer** (`app.py`'s
+`contract_agent.py`) has its own, separate eval — `evaluate.py` above
+only ever scored the original `agent.py` pipeline:
+
+```bash
+python evaluation/evaluate_contract_agent.py
+```
+
+Scored against 8 hand-labeled synthetic change scenarios (see
+`evaluation/labeled_contract_changes.json`) covering every rule-decided
+path — location/time changes, guest-count thresholds, added/removed/
+qty-changed menu items, and the blank-field-regression rule:
+
+| Metric | Score |
+|---|---|
+| Decision accuracy | 1.00 (8/8) |
+
+Deliberately scoped to rule-decided cases only — no `GEMINI_API_KEY`
+needed, fully deterministic. LLM-judged paths (an `event_type` reword, a
+menu description edit) aren't covered by an automated eval; see
+[Limitations](docs/DESIGN.md#limitations).
+
 ## Project structure
 
 ```
@@ -115,8 +137,10 @@ event-compliance-agent/
 │   └── agent.py                 decision layer + audit trail + report
 ├── data/sample_events/          4 sample events (995, 1002, 1140, 2201 — contract-change demo)
 ├── evaluation/
-│   ├── labeled_cases.json       hand-labeled ground truth
-│   └── evaluate.py              precision/recall/safety-recall scorer
+│   ├── labeled_cases.json           hand-labeled ground truth (agent.py)
+│   ├── evaluate.py                  precision/recall/safety-recall scorer (agent.py)
+│   ├── labeled_contract_changes.json hand-labeled ground truth (contract_agent.py)
+│   └── evaluate_contract_agent.py   decision-accuracy scorer (contract_agent.py)
 ├── demo/                        self-contained interactive walkthrough (static HTML)
 ├── docs/DESIGN.md               full rationale, architecture, design decisions, limitations
 └── requirements.txt
@@ -138,6 +162,7 @@ python src/agent.py data/sample_events/event_995
 
 # Evaluate against labeled ground truth:
 python evaluation/evaluate.py
+python evaluation/evaluate_contract_agent.py  # app.py's decision layer
 
 # Live recall check from the CLI:
 python src/agent.py data/sample_events/event_995 --live-recalls
