@@ -5,7 +5,7 @@ Contract / ProductionSheet / PullSheet JSON schema the rest of the
 pipeline expects.
 
 Uses Google's Gemini API (free tier — see README for setup). Extraction is
-intentionally kept separate from agent.py and discrepancy_engine.py: a bad
+intentionally kept separate from contract_agent.py's decision layer: a bad
 extraction (a misread ingredient, a garbled item name) should be visibly
 flagged as low-confidence, not silently fed into the compliance checks as
 if it were ground truth. That's why every extracted field comes back with
@@ -476,9 +476,9 @@ def extract_packing_list_for_allergens(file_path) -> dict:
     file_path: a photo or PDF of an event packing list/menu -- dishes
     listed by name with little to no real ingredient detail. Deliberately
     a SEPARATE prompt/function from extract_production_sheet(): that one
-    is used by the full compliance pipeline's stricter, literal-reading
-    checks (app_compliance_agent_full.py), and changing its behavior to
-    infer ingredients more aggressively would silently affect those
+    is built for stricter, literal-reading compliance checks, and
+    changing its behavior to infer ingredients more aggressively would
+    silently affect those
     higher-stakes findings too. This function is only for the standalone
     allergen-screening tool, where every dish's ingredients are already
     understood to be Gemini's best-guess inference, clearly labeled as

@@ -1,17 +1,15 @@
 """
 Thin wrapper around Google's Gemini API (free tier — see README), used only
-for the agent's ambiguous cases -- e.g. "may contain traces" language, or a
-menu-name change that might just be a relabeling rather than a real
-substitution. Every finding that's unambiguous (a guaranteed-free allergen
-showing up directly, a contracted item missing entirely) is decided by
-discrepancy_engine.py alone and never needs the LLM at all -- that's a
-deliberate design choice, not a fallback: the deterministic checks stay
-auditable, and the model is only asked to weigh in exactly where
-human-style judgment is genuinely needed.
+for contract_agent.py's genuinely ambiguous cases -- a reworded event_type,
+a menu description edit with no quantity change. Every change that's
+unambiguous (a location/time change, an added or removed menu item, a
+field gone blank) is decided by contract_agent.py's own rules alone and
+never needs the LLM at all -- that's a deliberate design choice, not a
+fallback: the deterministic checks stay auditable, and the model is only
+asked to weigh in exactly where human-style judgment is genuinely needed.
 
-If GEMINI_API_KEY isn't set, the agent runs in rule-based-only mode:
-ambiguous cases get flagged as "needs human review" rather than
-auto-resolved. This is the honest default for a demo -- it never invents
+If GEMINI_API_KEY isn't set, ambiguous changes get routed to "review"
+rather than auto-resolved. This is the honest default -- it never invents
 a judgment call it can't actually make.
 
 Get a free key (no credit card required) at https://aistudio.google.com/apikey

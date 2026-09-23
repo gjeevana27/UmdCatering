@@ -14,12 +14,10 @@ jobs:
           python-version: "3.11"
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: agent.py eval (evaluate.py)
-        run: python evaluation/evaluate.py
       - name: contract_agent.py eval (evaluate_contract_agent.py)
         run: python evaluation/evaluate_contract_agent.py
 
-# evaluate_llm_judgment.py is deliberately NOT run here -- it makes real,
-# billed Gemini API calls and needs GEMINI_API_KEY. Kept opt-in, run
-# manually, same reasoning as it being excluded from every other
-# automated path in this repo.
+# evaluate_llm_judgment.py and evaluate_extraction.py are deliberately
+# NOT run here -- they make real, billed Gemini API calls and need
+# GEMINI_API_KEY (evaluate_extraction.py also needs real hand-labeled
+# photos that don't exist in this repo). Both stay opt-in, run manually.

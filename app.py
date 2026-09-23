@@ -3,10 +3,8 @@ Good-to-Go — Good Tidings / Goodies To Go
 
 Core purpose: upload a contract (photo/PDF), extract the event fields,
 compare against whatever is already stored for that event, and tell the
-chef what changed. Also folds in the standalone allergen scanner from
-app_compliance_agent_full.py (a quick one-dish ingredient check, no
-contract needed) -- production-sheet-vs-contract checks and the live
-recall feed are still separate, for later.
+chef what changed. Also includes a standalone allergen scanner (a quick
+one-dish ingredient check, no contract needed).
 
 Storage is Firestore. Two completely separate collections, one per
 division — a division's uploads only ever read/write its own collection.

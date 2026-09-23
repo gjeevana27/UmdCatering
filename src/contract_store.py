@@ -1,11 +1,10 @@
 """
 Storage, lookup, and comparison for the contract-version tracker.
 
-This is deliberately a separate, minimal module from agent.py /
-discrepancy_engine.py -- this tool does one thing: extract a contract,
-compare it against whatever version is already stored for that event, and
-report every difference. No allergen logic, no production-sheet checks, no
-recall feed. Those are the compliance agent's job, built separately.
+This is deliberately a minimal module: it does one thing -- extract a
+contract, compare it against whatever version is already stored for that
+event, and report every difference. No allergen logic, no
+production-sheet checks, no recall feed.
 
 Storage is Firestore, one database, two COMPLETELY SEPARATE collections --
 Good Tidings and Goodies To Go never read or write each other's collection,

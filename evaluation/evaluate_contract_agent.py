@@ -1,17 +1,13 @@
 """
-Evaluates contract_agent.py's decision layer -- the Contract Version
-Tracker's escalate/review classifier -- against hand-labeled synthetic
-change scenarios (labeled_contract_changes.json).
+Evaluates contract_agent.py's decision layer -- Good-to-Go's
+escalate/review classifier -- against hand-labeled synthetic change
+scenarios (labeled_contract_changes.json).
 
 Deliberately scoped to RULE-decided cases only -- no GEMINI_API_KEY
-needed, fully deterministic, no network dependency, same testing
-philosophy as evaluate.py for agent.py's own eval. Genuinely ambiguous
+needed, fully deterministic, no network dependency. Genuinely ambiguous
 free-text changes (an event_type reword, a menu description edit) go
 through llm_client.judge_contract_change() instead of a rule, and aren't
-covered here -- see docs/DESIGN.md's Limitations section.
-
-This is the first automated evaluation coverage for app.py's decision
-layer -- evaluate.py only ever scored the original agent.py pipeline.
+covered here -- see evaluate_llm_judgment.py for that path.
 
 Run from the project root:
     python evaluation/evaluate_contract_agent.py

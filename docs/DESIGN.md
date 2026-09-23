@@ -1,7 +1,7 @@
 # Design, architecture, and limitations
 
-Full rationale behind both apps in this repo. The [README](../README.md)
-covers what to run and how; this is the why and the fine print.
+Full rationale behind this project. The [README](../README.md) covers
+what to run and how; this is the why and the fine print.
 
 ## Good-to-Go (`app.py`)
 
@@ -119,176 +119,19 @@ compliance agent and extended for real packing lists:
   instead of asking again.
 - Multiple uploaded documents render side by side, two events per row.
 
-## The original compliance agent (`app_compliance_agent_full.py` / `agent.py`)
-
-### The problem
-
-This comes directly from real event-production review work: verifying
-production sheets against contracts and flagging allergens across recipe
-sheets by hand, event by event. Two things make it worth automating
-carefully rather than casually:
-
-1. **Allergen risk hides in ingredient composition, not ingredient names.**
-   "Satay sauce" doesn't say "peanuts." "Caesar dressing" doesn't say "egg"
-   or "anchovy." A reviewer who's fast and experienced catches these; a
-   naive keyword scan over dish names does not.
-2. **A false negative here is not like a false negative anywhere else.**
-   Missing a contract price discrepancy costs money. Missing a real allergen
-   conflict can hurt someone. The system has to be built so those two
-   failure modes are never scored, reported, or handled the same way.
-
-### What the agent actually does
-
-It does **not** approve menus. Its only autonomous actions are:
-1. Deciding what to escalate to a human, and how urgently.
-2. Auto-clearing findings that are unambiguously non-issues, so a reviewer's
-   limited time goes to what actually needs it.
-3. Producing a report with the evidence and reasoning behind every decision.
-
-Every decision is logged with what triggered it (see `audit_trail` in
-`agent.py`). Nothing is a black box.
-
-### What's new beyond the CLI version
-
-Real extensions on top of the original deterministic-checks-plus-LLM-
-judgment pipeline:
-
-- **Real kitchen allergen reference.** `src/allergen_reference.py` is now
-  transcribed directly from the kitchen's own reference cards (the
-  FDA "Big 9": milk, egg, fish, shellfish, tree nuts, peanuts, wheat, soy,
-  sesame), not a synthetic seed list. Peanut and tree nuts are separate
-  categories, per the kitchen's own list, even though the physical card
-  combines them on one page. The milk/dairy category is still the
-  original placeholder — that card hasn't been provided yet — and the
-  module docstring flags exactly what's verified vs. not.
-- **Contract-change detection now covers venue, time, date, and
-  cancellation**, not just guest count/items/allergens/price.
-  `contract_diff.py` flags a reschedule (date change), a venue change
-  (high severity — delivery address and kitchen access both need
-  rechecking, not just food quantities), a time change, and treats a
-  cancellation as a hard-escalate case exactly like a newly-added allergen
-  guarantee — no rule or model override can suppress it.
-- **Division/brand organization.** `Contract` now carries a `division`
-  field (e.g. "Good Tidings" vs. "Goodies To Go"). It's purely an
-  organizing/filtering field — the compliance logic, allergen reference,
-  and recipe data are identical and shared across every division. The web
-  app's sample-events tab filters by division.
-- **`src/extract.py`** — reads a photo or PDF of a real contract or
-  production sheet and turns it into the same structured schema the rest
-  of the pipeline expects, using Gemini's vision input. Every extraction
-  comes back with a `_confidence` flag and notes — a misread ingredient is
-  a data-entry error like any other, and it's surfaced before it can
-  silently feed into a compliance decision, not after.
-- **`src/allergen_scan.py`** — a standalone quick allergen check for ONE
-  dish, separate from the full contract-vs-sheet workflow. Text input
-  (paste an ingredient list) is fully local and free — zero API calls,
-  it's just `allergen_reference.scan_recipe()` directly. Photo input uses
-  Gemini to read the ingredients first, then the same local scan.
-- **`src/recall_checker.py`** — queries the public openFDA Food Enforcement
-  API in real time and cross-references active Class I/II recalls against
-  the event's ingredients. This is the one genuinely time-sensitive data
-  source in the project (everything else is static per-event data), so
-  it's opt-in (`--live-recalls` / a toggle in the web app) rather than run
-  on every review. A failed lookup is logged as "could not check," never
-  silently reported as "nothing found" — see `agent._recall_findings()`.
-- **`src/contract_diff.py`** — compares two versions of the same event's
-  contract and flags what actually changed, converted into the same
-  Finding/Decision shape as everything else. This targets a specific
-  failure mode: a production sheet gets printed and hand-annotated, the
-  client changes something afterward (guest count, a menu swap, a new
-  allergy disclosure), and nobody re-checks the printed sheet against the
-  update. A newly-added allergen guarantee is hard-escalated exactly like
-  a live allergen conflict — see `event_2201` in the sample data for a
-  worked example (a shellfish allergy disclosed after the sheet was
-  printed, with shrimp skewers still sitting on the stale sheet).
-- **`src/pull_sheet_check.py`** — a separate, fuzzier check for kitchen-
-  board "Secure [item]: qty" pull sheets (a flat prep checklist grouped by
-  event #, structurally different from a dish-by-dish production sheet).
-  Fuzzy word-overlap matching against contracted items, since these two
-  documents never use identical phrasing — every finding comes out at
-  medium severity precisely because it's inherently less certain than the
-  exact-set comparisons elsewhere in the project.
-
-### Architecture
-
-```
-photo/PDF of contract or       contract.json +
-production sheet               production_sheet.json
-        |                              |
-        v                              |
-  extract.py (Gemini vision)           |
-   -> JSON + _confidence flag          |
-        |                              |
-        +------------------------------+
-                    |
-                    v
-   parser.py  ->  normalized Contract / ProductionSheet objects
-              |
-              v
-   discrepancy_engine.py  (deterministic — no LLM here)
-     - menu alignment      (contracted vs. produced items)
-     - allergen conflicts  (guaranteed-free categories vs. ingredient scan)
-     - undeclared allergens (recipe card label vs. actual ingredients)
-     - guest count drift
-              |
-              v (optional, opt-in)
-   recall_checker.py  ->  live openFDA query  ->  recall_exposure findings
-              |
-              v
-       list[Finding] (type, severity, evidence)
-              |
-              v
-   agent.py :: decide()
-     - high-severity allergen conflict OR recall exposure -> ALWAYS escalate (hard rule, no override)
-     - other high severity              -> escalate by rule
-     - low severity, non-allergen       -> auto-clear by rule
-     - medium severity (ambiguous)      -> ask LLM if configured,
-                                            else route to human review
-              |
-              v
-   EventReview  ->  format_report() / app.py UI  ->  report + audit trail
-```
-
-The deterministic engine and the decision layer are separate modules on
-purpose. `discrepancy_engine.py` only establishes facts ("this ingredient
-matches this allergen category"). `agent.py` is the only place that decides
-what to *do* about a fact. That split is what makes the agent's behavior
-auditable instead of "the LLM read the sheet and said it was fine."
-
-**The one hard rule:** `NEVER_AUTO_CLEAR` in `agent.py` — a high-severity
-allergen conflict is **always** escalated, regardless of what any rule or
-LLM call would otherwise decide. There is no code path that lets the
-system quietly clear a real allergen match. This is a deliberate ceiling
-on the agent's autonomy, not an oversight to fix later.
-
-### Why an LLM is optional, not required
-
-Every unambiguous finding (a contracted item missing entirely, a guaranteed
-nut-free contract with nuts in a sauce) is resolved by
-`discrepancy_engine.py` alone — no model call, no ambiguity, no risk of an
-LLM talking itself out of a real flag. The model is only ever asked to
-weigh in on genuinely ambiguous medium-severity cases (e.g., "does a 12-guest
-increase communicated by email but never written into the contract count
-as a discrepancy worth flagging?"). Without a `GEMINI_API_KEY`, the agent
-still runs correctly — it just routes those ambiguous cases to a human
-instead of guessing, which is the honest default for a food-safety-adjacent
-tool. When a key is configured, Gemini's free tier (no credit card) is
-sized generously enough that normal use of this project costs nothing.
-
 ## Guardrails
 
-Shared by both apps (`src/extract.py` and `src/llm_client.py` are the
-common call points), not specific to either one:
+`src/extract.py` and `src/llm_client.py` are the common call points for
+everything below:
 
 - **No local PII accumulation.** Every uploaded photo/PDF is a real
   customer document. It used to get written to the OS temp directory
   with `delete=False` (needed so the file survived long enough for
   Gemini's SDK to read it by path) and never cleaned up afterward —
   silently growing an unbounded folder of real customer documents on
-  whatever machine runs the app. `_temp_upload_file()` (one copy per
-  app, same pattern) now guarantees deletion in a `finally` block,
-  success or failure, at all 5 upload call sites across both apps.
-  Deleting the file doesn't affect what gets stored: by the time the
+  whatever machine runs the app. `_temp_upload_file()` now guarantees
+  deletion in a `finally` block, success or failure, at both upload call
+  sites in `app.py`. Deleting the file doesn't affect what gets stored: by the time the
   file is removed, Gemini has already returned a parsed JSON response,
   which lives on as a plain Python dict independent of the file --
   everything downstream (building a record, diffing it, writing to
@@ -364,16 +207,6 @@ common call points), not specific to either one:
   first approach, but it means a scanned PDF's read quality depends
   entirely on Gemini's own PDF handling, which hasn't been validated
   against a real scanned banquet order in this environment (see above).
-- **Pull-sheet coverage matching is fuzzy by design, not exact.** A
-  contract's dish names and a pull sheet's "Secure X" phrasing rarely
-  match word-for-word, so `pull_sheet_check.py` uses a loose word-overlap
-  threshold and reports every finding at medium severity — it's a
-  starting point for a human's eyes, not a precise diff.
-- **The recall check does substring/keyword matching against openFDA's
-  free-text fields**, not a structured product/UPC match. It's a
-  reasonable real-time signal, not a guarantee of catching every relevant
-  recall — a real deployment would want to match against a supplier's
-  actual product/lot numbers where available.
 - **The rate-limit circuit breaker is per-process, not persisted.**
   `rate_guard.py`'s daily counter lives in memory — it resets on every app
   restart and isn't shared across instances if this were ever deployed as
@@ -383,42 +216,33 @@ common call points), not specific to either one:
   counter — persisting it to Firestore would mean a database round-trip
   on every single Gemini call just to track a number that already has an
   authoritative backstop elsewhere.
-- **Eval sets are hand-labeled by one reviewer, and one of the four is
-  still small.** `evaluate.py`'s sample-event set (`agent.py`'s eval) is
-  still just 3 events — scaling it needs more real (anonymized) or
-  carefully-constructed synthetic contract/production-sheet pairs, not
-  yet done. `evaluate_contract_agent.py` (60 cases) and
-  `evaluate_llm_judgment.py` (36 cases, live) were both deliberately
-  scaled up from an original 8 to include boundary and adversarial
-  cases specifically — an exact-15%-threshold guest count, a
-  non-numeric OCR-garbled number, cosmetic-only quantity reformatting,
-  a same-place location written two different ways — rather than only
-  the obvious example of each rule, since a perfect score on a handful
-  of easy cases doesn't mean much. That scaling is what surfaced a real,
-  disclosed disagreement in the live eval (35/36, not 1.00 — see
-  README's Evaluation section for the specific case); it's left in and
-  reported honestly rather than dropped or relabeled to make the number
-  cleaner.
-- **`evaluate_extraction.py` closes the biggest remaining gap** —
-  `agent.py`'s own ambiguous-finding judgment call
-  (`judge_ambiguous_finding()`, as opposed to `contract_agent.py`'s
-  `judge_contract_change()`, which the live eval covers), `contract_diff.py`,
-  `pull_sheet_check.py`, and the standalone allergen scanners still have
-  no automated eval, but until now neither did extraction accuracy
-  itself — the vision-to-JSON step every other layer's eval silently
-  assumes is already correct. The harness is built and scores
-  field-level accuracy (weighted toward the fields that actually drive
-  `contract_agent.py`'s decisions) plus whether the model's own
-  self-reported `_confidence` actually tracks its error rate, but it has
-  nothing to score yet: it needs real, hand-labeled contract photos,
-  which can't ship in this repo (real client PII) and don't exist in
-  this environment either. See `data/real_examples/README.md` and
+- **Eval sets are hand-labeled by one reviewer.**
+  `evaluate_contract_agent.py` (60 cases) and `evaluate_llm_judgment.py`
+  (36 cases, live) were both deliberately scaled up from an original 8 to
+  include boundary and adversarial cases specifically — an
+  exact-15%-threshold guest count, a non-numeric OCR-garbled number,
+  cosmetic-only quantity reformatting, a same-place location written two
+  different ways — rather than only the obvious example of each rule,
+  since a perfect score on a handful of easy cases doesn't mean much.
+  That scaling is what surfaced a real, disclosed disagreement in the
+  live eval (35/36, not 1.00 — see README's Evaluation section for the
+  specific case); it's left in and reported honestly rather than dropped
+  or relabeled to make the number cleaner.
+- **`evaluate_extraction.py` closes the biggest remaining gap** — the
+  standalone allergen scanner still has no automated eval, but until now
+  neither did extraction accuracy itself: the vision-to-JSON step every
+  other layer's eval silently assumes is already correct. The harness is
+  built and scores field-level accuracy (weighted toward the fields that
+  actually drive `contract_agent.py`'s decisions) plus whether the
+  model's own self-reported `_confidence` actually tracks its error
+  rate, but it has nothing to score yet: it needs real, hand-labeled
+  contract photos, which can't ship in this repo (real client PII) and
+  don't exist in this environment either. See
+  `data/real_examples/README.md` and
   `evaluation/label_extraction_example.py` for how to build examples as
   real photos come in from actual use. A production version needs a
   larger, multi-reviewer-labeled set across every harness, drawn from
-  real (anonymized) past events, and eval coverage extended to
-  `judge_ambiguous_finding()` the same way `judge_contract_change()`
-  now has it.
+  real (anonymized) past events.
 - **This is a decision-support tool.** It never approves a menu or clears
   an allergen conflict on its own authority. Every escalation and every
   "needs review" item is a recommendation for a human to act on, not an

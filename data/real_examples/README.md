@@ -17,11 +17,12 @@ addresses in them, and that stays local to your machine only.
    is the validation pass the current prompts still need (see README
    Limitations) — they were written by reading your example photos
    carefully, but never run against a live model.
-2. **Eventually building a real eval set.** The current
-   `evaluation/labeled_cases.json` is 3 hand-labeled synthetic events —
-   honest, but small. A handful of real (anonymized) contract/production-
-   sheet pairs with known outcomes ("this discrepancy was real, this one
-   wasn't") would make the precision/recall numbers mean a lot more.
+2. **Eventually building a larger real eval set.** `evaluation/evaluate_contract_agent.py`
+   and `evaluation/evaluate_llm_judgment.py` are currently scored against
+   hand-labeled synthetic scenarios — honest, but synthetic. A handful of
+   real (anonymized) contract version-pairs with known outcomes ("this
+   change should have escalated, this one shouldn't have") would make
+   those numbers mean a lot more.
 3. **Extraction accuracy ground truth** — `evaluation/evaluate_extraction.py`
    scores `extract.extract_contract_record()`'s field-by-field accuracy
    against real photos, which no other eval in this repo tests. Build an
@@ -45,6 +46,6 @@ addresses in them, and that stays local to your machine only.
 Don't commit a real photo directly. Instead:
 - Redact client name, phone, address, and email before saving a copy
   anywhere public (crop/blur, or just re-type the non-identifying parts
-  into a synthetic JSON like the existing `data/sample_events/` ones).
+  into a synthetic case like the ones in `evaluation/labeled_contract_changes.json`).
 - Or ask me to help turn one real example into an anonymized synthetic
   one — same structure, same discrepancies, fictional client info.
