@@ -1,136 +1,158 @@
 # Event Compliance Agent
 
-A Streamlit app for real catering-operations review work (`app.py`, the
-Contract Version Tracker), plus an earlier, broader compliance agent kept
-in the repo as a separate, parked app (`app_compliance_agent_full.py`) —
-not actively developed alongside it, but still fully working if you want
-to run it. Both are built around the same principle: deterministic rules
-handle everything they can, and an LLM (Gemini, free tier) is only ever
-asked to weigh in where rule-based logic genuinely can't resolve
-ambiguity — never as the first or only line of defense on a
-safety-relevant finding.
+Catering-operations review tooling: contract-version tracking with automatic
+change detection, a per-event allergen scanner, and a deterministic-first
+escalate/review decision layer that only calls an LLM where rules genuinely
+can't resolve ambiguity.
 
-**Full design rationale, architecture diagram, feature-by-feature detail,
-and known limitations:** see [docs/DESIGN.md](docs/DESIGN.md). This
-README covers what each app does at a glance and how to run it.
+**Full rationale, architecture, and known limitations:**
+[docs/DESIGN.md](docs/DESIGN.md).
 
-## `app.py` — Contract Version Tracker (current, primary app)
+## Built With
 
-Upload a contract (photo/PDF), and it's compared against whatever version
-is already on file for that same event — every field, every menu line
-item, tracked and reviewable over time. Built for one specific real-world
-problem: a contract changes after someone's already acted on the old
-version, and nobody catches it.
+Python · Streamlit · Google Gemini API (`gemini-3.5-flash-lite`) ·
+Google Cloud Firestore · python-dateutil
 
-- **Good Tidings / Goodies To Go** kept in completely separate storage.
-- **Matched by (Event ID, Event Date)** — a genuine reschedule and a
-  different event reusing the same number are never silently conflated;
-  you decide which one it is whenever that's ambiguous.
-- **Batch upload** — a whole morning's contracts at once, reconciled by
-  each document's own print timestamp if two land on the same event.
-- **Notifications tab** — every change, grouped by day, checkbox-reviewed,
-  with unresolved items carried forward so nothing gets missed by only
-  checking the latest one.
-- **Allergen Scan tab** — a quick per-dish or per-packing-list allergen
-  check, with Gemini-inferred ingredients (clearly labeled, never treated
-  as verified) and a persistent per-dish allergen reference that grows as
-  you confirm findings.
-- **Guardrails** — every uploaded document (real customer PII) is
-  cleaned up from local disk right after extraction rather than left to
-  accumulate; a daily call-count circuit breaker caps Gemini spend
-  against a runaway bug; and every extraction is validated (a bad type
-  raises, a negative count auto-corrects with confidence downgraded)
-  before it can reach the decision layer.
+## Features
 
-Run it: see "Running the Contract Version Tracker" below. Full detail on
-every feature above, including the guardrails:
-[docs/DESIGN.md](docs/DESIGN.md#contract-version-tracker-apppy).
+- **Division-isolated storage** — Good Tidings and Goodies To Go never
+  share a collection, lookup, or comparison.
+- **Matched by (Event ID, Event Date)**, not Event ID alone — a reschedule
+  and a different event reusing the same number are never silently
+  conflated; ambiguous cases are surfaced for an explicit human decision.
+- **Batch upload**, reconciled by each document's own print timestamp when
+  two files land on the same event.
+- **Two-tier decision layer** — every change is Act-on-this or
+  Worth-a-glance, never silently logged away.
+- **Notifications tab** — day-grouped, checkbox-reviewed, unresolved items
+  carried forward so nothing is missed by checking only the latest one.
+- **Allergen Scan tab** — Gemini-inferred ingredients (labeled as
+  inference, never as verified), confirmed findings persisted to a
+  growing per-dish allergen reference.
+- **Guardrails** — PII cleanup, a daily API call-count circuit breaker,
+  and output validation on every extraction (see below).
+- **3 automated eval harnesses**, one deterministic per decision layer plus
+  a live LLM-judgment eval (see Evaluation).
 
-## `app_compliance_agent_full.py` — the original, broader compliance agent
+The repo also carries an earlier, broader prototype
+(`app_compliance_agent_full.py` / `agent.py`) that this app grew out of —
+parked, not actively developed, but left in and still runnable since it
+covers allergen/contract-vs-production-sheet checks `app.py` doesn't.
 
-Reviews a production sheet against its signed contract and flags what a
-human needs to act on before the event — menu mismatches, guest-count
-changes, and allergen conflicts, including "hidden" allergens that don't
-show up in an ingredient's name (satay sauce carrying tree nuts, Caesar
-dressing carrying egg and anchovy). Five tabs: sample events, your own
-contract/production-sheet JSON, a photo/PDF, a contract-version diff, and
-a standalone allergen scanner — plus an optional live FDA recall check.
+## Architecture — Contract Version Tracker (`app.py`)
 
-**Live demo (no setup needed):** see `demo/` — a self-contained,
-rule-based walkthrough on three sample events.
+```
+                    Streamlit UI (app.py)
+   Good Tidings │ Goodies To Go │ Notifications │ Allergen Scan
+                            │
+                            │  upload photo/PDF
+                            ▼
+              extract.py  (Gemini vision → JSON)
+                 returns structured record + _confidence
+                            │
+                            ▼
+        _validate_extracted_dict()   [guardrail: type/range checks]
+                            │
+                            ▼
+     contract_store.py — lookup by (event_id, event_date)
+        ├─ exact match         → diff_records() → overwrite record
+        ├─ same id, new date   → ask human: link reschedule / keep separate
+        └─ no match            → store as new baseline
+                            │
+                            ▼
+     contract_agent.py — evaluate_changes()
+        ├─ rule-decided   (location, event_time, guest_count Δ,
+        │                  menu item added/removed/qty-changed,
+        │                  field blanked-out ⇒ likely extraction miss)
+        └─ ambiguous text → llm_client.judge_contract_change()  (Gemini)
+                            │
+                            ▼
+          Firestore — per-division change history + notifications
+                            │
+                            ▼
+          Notifications tab — grouped by day, checkbox-reviewed,
+          unresolved items carried into the next notification
+```
 
-Uses Google's **Gemini API** (`gemini-3.5-flash-lite`) for the LLM-assisted
-pieces in both apps — free tier, no credit card, comfortably covers normal
-use at zero cost.
+## Decision rules (`contract_agent.py`)
+
+| Change | Decision | Rule |
+|---|---|---|
+| Field had content → now blank | **Escalate** | checked first, ahead of every other rule — treated as a likely extraction miss |
+| `location` / `event_time` changed | **Escalate** | always-escalate fields, any magnitude |
+| `guest_count` Δ ≥ 15% | **Escalate** | `SIGNIFICANT_QUANTITY_CHANGE` threshold |
+| `guest_count` Δ < 15% | Review | shown, not urgent |
+| Menu item added / removed | **Escalate** | unconditional |
+| Menu item qty/unit changed | **Escalate** | unconditional |
+| Menu description reworded | LLM judgment | ambiguous free text |
+| `event_type` reworded | LLM judgment | ambiguous free text |
+| Any "review" item, but extraction confidence was low | **Escalate** | agent doesn't fully trust its own upstream reading |
+
+## Legacy agent's severity ladder (`agent.py` / `app_compliance_agent_full.py`)
+
+| Finding | Decision |
+|---|---|
+| High-severity allergen conflict OR recall exposure | **Always escalate** — hard rule, no override (`NEVER_AUTO_CLEAR`) |
+| Other high severity | Escalate by rule |
+| Low severity, non-allergen | Auto-clear by rule |
+| Medium severity (ambiguous) | LLM judgment if configured, else routed to human review |
+
+Full pipeline diagram (extract → parse → `discrepancy_engine.py` →
+optional live recall check → `agent.py::decide()`):
+[docs/DESIGN.md#architecture](docs/DESIGN.md#architecture).
+
+## Guardrails
+
+| Guardrail | Mechanism | Where |
+|---|---|---|
+| PII cleanup | every uploaded document deleted from temp disk in a `finally` block, success or failure | `_temp_upload_file()`, 5 upload call sites across `app.py` and the legacy script |
+| Cost circuit breaker | thread-safe in-process daily call counter, checked before every Gemini attempt including retries | `rate_guard.py`, default 300/day, `GEMINI_DAILY_CALL_LIMIT` to override |
+| Output validation | every extraction's int/list/confidence fields checked; bad type raises, negative count auto-corrects with confidence downgraded to `low` | `extract._validate_extracted_dict()`, all 6 extraction entry points |
+
+## Tech Stack
+
+| Layer | Technology | Purpose |
+|---|---|---|
+| App framework | Streamlit | `app.py` (primary); legacy script also runnable |
+| LLM | Gemini API (`gemini-3.5-flash-lite`) | extraction (vision), ambiguous-case judgment |
+| Storage | Google Cloud Firestore | per-division records, notifications, dish-allergen reference |
+| Decision layer | pure Python (`contract_agent.py` / `agent.py`) | deterministic rules, no LLM in the fact-finding path |
+| Rate/cost control | `rate_guard.py` | shared daily call-count circuit breaker |
+| Live data (legacy app only) | openFDA Food Enforcement API | recall exposure check, opt-in |
 
 ## Evaluation
 
+Three separate harnesses, one per decision layer — deliberately kept
+separate rather than one blended score, since they test different things
+and one of them costs money to run.
+
+| Harness | Tests | Cases | Metric | Score |
+|---|---|---|---|---|
+| `evaluation/evaluate.py` | `agent.py` (legacy pipeline) | 3 real sample events | Escalation precision | **1.00** |
+| | | | Escalation recall | **1.00** |
+| | | | Allergen-conflict recall (safety-critical subset) | **1.00** |
+| `evaluation/evaluate_contract_agent.py` | `contract_agent.py` decision rules | 8 synthetic scenarios | Decision accuracy | **1.00 (8/8)** |
+| `evaluation/evaluate_llm_judgment.py` | `llm_client.judge_contract_change()` — **live**, real API calls | 8 scenarios | Decision-category accuracy | **1.00 (8/8)** |
+
 ```bash
 python evaluation/evaluate.py
-```
+python evaluation/evaluate_contract_agent.py     # no API key needed, deterministic
 
-Scored against a small, hand-labeled set of 3 sample events (see
-`evaluation/labeled_cases.json`):
-
-| Metric | Score |
-|---|---|
-| Escalation precision | 1.00 |
-| Escalation recall | 1.00 |
-| Allergen-conflict recall (safety-critical subset) | 1.00 |
-
-Allergen-conflict recall is reported separately from overall recall on
-purpose — a missed allergen escalation and a missed menu-count mismatch
-aren't the same failure, and averaging them would let a safety-critical
-miss hide behind an otherwise decent score. (This eval set is small —
-see [Limitations](docs/DESIGN.md#limitations).)
-
-**Contract Version Tracker's decision layer** (`app.py`'s
-`contract_agent.py`) has its own, separate eval — `evaluate.py` above
-only ever scored the original `agent.py` pipeline:
-
-```bash
-python evaluation/evaluate_contract_agent.py
-```
-
-Scored against 8 hand-labeled synthetic change scenarios (see
-`evaluation/labeled_contract_changes.json`) covering every rule-decided
-path — location/time changes, guest-count thresholds, added/removed/
-qty-changed menu items, and the blank-field-regression rule:
-
-| Metric | Score |
-|---|---|
-| Decision accuracy | 1.00 (8/8) |
-
-Deliberately scoped to rule-decided cases only — no `GEMINI_API_KEY`
-needed, fully deterministic.
-
-**The LLM judgment layer itself** (`llm_client.judge_contract_change()`)
-has a third eval — the only one of the three that makes real API calls,
-so it's kept opt-in rather than bundled with the other two:
-
-```bash
 export GEMINI_API_KEY=...
-python evaluation/evaluate_llm_judgment.py
+python evaluation/evaluate_llm_judgment.py       # live, opt-in, ~$0.001/run
 ```
 
-Scored against 8 hand-labeled scenarios (see
-`evaluation/labeled_llm_judgments.json`), each chosen to have a clear,
-defensible expected category — an `event_type` change reflecting a real
-operational shift vs. a wording-only tweak, a menu description that adds
-an allergen-relevant ingredient vs. a synonym swap:
+Allergen-conflict recall is scored separately from overall recall on
+purpose — a missed allergen escalation and a missed menu-count mismatch
+are different failure classes; averaging them would hide a safety-critical
+miss behind a decent blended number.
 
-| Metric | Score |
-|---|---|
-| Decision-category accuracy (live) | 1.00 (8/8) |
+**Not yet covered by an automated eval:** `agent.py`'s own
+`judge_ambiguous_finding()`, extraction accuracy itself, `contract_diff.py`,
+`pull_sheet_check.py`, the standalone allergen scanners. See
+[docs/DESIGN.md#limitations](docs/DESIGN.md#limitations).
 
-Costs a small amount (a handful of short text-only calls, well under a
-cent total) and isn't bit-for-bit deterministic run to run the way the
-other two evals are — it's scored on decision *category* (escalate vs.
-review), which is far more stable than the model's exact wording. Never
-auto-run by anything else, same reasoning as `--live-recalls` being
-opt-in.
-
-## Project structure
+## Project Structure
 
 ```
 event-compliance-agent/
@@ -141,125 +163,95 @@ event-compliance-agent/
 │   └── secrets.toml.example     template for Firestore/Gemini secrets on Streamlit Cloud
 ├── src/
 │   ├── contract_store.py        Firestore storage/lookup/diff for the Contract Version Tracker
-│   │                             (event_id+date matching, notifications, dish-allergen notes)
-│   ├── contract_agent.py        decision layer for contract changes (escalate/review, whitespace-
-│   │                             normalized diffing, blank-field-regression rule)
+│   ├── contract_agent.py        decision layer for contract changes (see rule table above)
 │   ├── allergen_reference.py    9-category allergen map, direct + hidden-carrier terms
 │   ├── parser.py                loads contract.json / production_sheet.json
-│   │                             + builds objects from extracted (photo/PDF) data
-│   │                             + PullSheet schema for kitchen-board checklists
 │   ├── discrepancy_engine.py    deterministic fact-finding (no LLM)
-│   ├── llm_client.py            optional Gemini call for ambiguous cases only
+│   ├── llm_client.py            Gemini call for ambiguous cases only
 │   ├── extract.py               photo/PDF -> structured JSON via Gemini vision
-│   │                             (contract / production sheet / pull sheet / single-dish /
-│   │                             packing-list-for-allergens schemas)
 │   ├── allergen_scan.py         standalone one-dish allergen scanner (text = free/local)
-│   ├── recall_checker.py        live openFDA recall lookup (real-time, opt-in)
-│   ├── contract_diff.py         diffs two contract versions, flags what changed
-│   ├── pull_sheet_check.py      fuzzy contract-vs-pull-sheet coverage check
+│   ├── recall_checker.py        live openFDA recall lookup (legacy app only, opt-in)
+│   ├── contract_diff.py         diffs two contract versions (legacy app)
+│   ├── pull_sheet_check.py      fuzzy contract-vs-pull-sheet coverage check (legacy app)
 │   ├── rate_guard.py            shared daily Gemini call-count circuit breaker
-│   └── agent.py                 decision layer + audit trail + report
-├── data/sample_events/          4 sample events (995, 1002, 1140, 2201 — contract-change demo)
+│   └── agent.py                 legacy decision layer + audit trail + report
+├── data/sample_events/          4 sample events (contract-change demo)
 ├── evaluation/
-│   ├── labeled_cases.json            hand-labeled ground truth (agent.py)
-│   ├── evaluate.py                   precision/recall/safety-recall scorer (agent.py)
-│   ├── labeled_contract_changes.json hand-labeled ground truth (contract_agent.py)
-│   ├── evaluate_contract_agent.py    decision-accuracy scorer (contract_agent.py)
-│   ├── labeled_llm_judgments.json    hand-labeled ground truth (llm_client.py)
-│   └── evaluate_llm_judgment.py      LIVE eval, real API calls, opt-in (llm_client.py)
+│   ├── labeled_cases.json / evaluate.py                         agent.py eval
+│   ├── labeled_contract_changes.json / evaluate_contract_agent.py  contract_agent.py eval
+│   └── labeled_llm_judgments.json / evaluate_llm_judgment.py    llm_client.py eval (live)
 ├── demo/                        self-contained interactive walkthrough (static HTML)
 ├── docs/DESIGN.md               full rationale, architecture, design decisions, limitations
 └── requirements.txt
 ```
 
-## Running it
+## Getting Started
 
-```bash
-git clone <this-repo>
-cd event-compliance-agent
-pip install -r requirements.txt
-
-# Rule-based only (no API key needed):
-python src/agent.py data/sample_events/event_995
-
-# With LLM-assisted ambiguous-case review (free Gemini key -- see below):
-export GEMINI_API_KEY=...
-python src/agent.py data/sample_events/event_995
-
-# Evaluate against labeled ground truth:
-python evaluation/evaluate.py
-python evaluation/evaluate_contract_agent.py  # app.py's decision layer
-
-# Live recall check from the CLI:
-python src/agent.py data/sample_events/event_995 --live-recalls
-
-# Contract-change detection from the CLI:
-python src/agent.py data/sample_events/event_2201 --compare-contract data/sample_events/event_2201/contract_v1.json
-
-# Standalone allergen scan (text mode needs no key at all):
-python src/allergen_scan.py "chicken thigh, satay sauce, lime, caesar dressing"
-python src/allergen_scan.py --photo path/to/dish.jpg   # needs GEMINI_API_KEY
-```
-
-Get a free `GEMINI_API_KEY` (no credit card) at
-[aistudio.google.com/apikey](https://aistudio.google.com/apikey).
-
-## Running the Contract Version Tracker (`app.py`)
+### Contract Version Tracker (`app.py`)
 
 ```bash
 pip install -r requirements.txt
 export GEMINI_API_KEY=...             # required -- extraction has no rule-based fallback
 export FIRESTORE_CREDENTIALS_PATH=... # required -- path to a service-account JSON file
-# export APP_PASSCODE=...             # optional -- gates access if deploying publicly
 streamlit run app.py
 ```
 
-Opens at `http://localhost:8501`. Four tabs: **Good Tidings** and
-**Goodies To Go** (each with its own upload + batch processing), the
-**Notifications** review queue, and **Allergen Scan** (the standalone
-dish/packing-list checker). See "Deploying" below for Firestore setup on
-Streamlit Cloud/Hugging Face Spaces.
+Opens at `http://localhost:8501`. Four tabs: Good Tidings, Goodies To Go,
+Notifications, Allergen Scan.
 
-## Running the full compliance agent (`app_compliance_agent_full.py`)
+### Legacy compliance agent (`app_compliance_agent_full.py`)
 
 ```bash
 pip install -r requirements.txt
-export GEMINI_API_KEY=...   # optional: enables photo/PDF extraction, the
-                              # photo mode of the allergen scanner, and
-                              # LLM-assisted ambiguous-case review
+export GEMINI_API_KEY=...   # optional -- enables photo/PDF extraction + LLM judgment
 streamlit run app_compliance_agent_full.py
 ```
 
-Opens at `http://localhost:8501`. Five tabs: sample events, your own JSON,
-photo/PDF upload, contract-version comparison, and the standalone allergen
-scanner. The live recall check is a toggle in the sidebar — off by default,
-since it makes a real network call to api.fda.gov.
+### CLI
+
+```bash
+# Rule-based only, no API key needed:
+python src/agent.py data/sample_events/event_995
+
+# With LLM-assisted ambiguous-case review:
+export GEMINI_API_KEY=...
+python src/agent.py data/sample_events/event_995
+
+# Live recall check:
+python src/agent.py data/sample_events/event_995 --live-recalls
+
+# Contract-change detection:
+python src/agent.py data/sample_events/event_2201 --compare-contract data/sample_events/event_2201/contract_v1.json
+
+# Standalone allergen scan (text mode needs no key):
+python src/allergen_scan.py "chicken thigh, satay sauce, lime, caesar dressing"
+```
+
+Free `GEMINI_API_KEY` (no credit card):
+[aistudio.google.com/apikey](https://aistudio.google.com/apikey).
+
+## Environment Variables
+
+| Variable | Required | Description |
+|---|---|---|
+| `GEMINI_API_KEY` | Yes (`app.py`) / optional (legacy app, CLI) | Gemini API key |
+| `FIRESTORE_CREDENTIALS_PATH` | Yes (`app.py`) | path to a Firestore service-account JSON file |
+| `APP_PASSCODE` | No | gates access if deploying `app.py` publicly |
+| `GEMINI_DAILY_CALL_LIMIT` | No | overrides the 300/day circuit breaker in `rate_guard.py` |
 
 ## Deploying
 
-Both web apps are normal Streamlit apps, so any of these work (all free):
+`app.py` is a plain Streamlit app — Streamlit Community Cloud or Hugging
+Face Spaces both work free. It additionally needs the Firestore
+service-account JSON pasted as a `FIRESTORE_SERVICE_ACCOUNT_JSON` secret
+(see `.streamlit/secrets.toml.example`). The static demo (`demo/index.html`)
+needs no backend at all and can be served directly from GitHub Pages.
 
-- **Streamlit Community Cloud** — push this repo to GitHub, go to
-  [share.streamlit.io](https://share.streamlit.io), "New app," point it at
-  this repo. For `app_compliance_agent_full.py`, add `GEMINI_API_KEY`
-  under the app's Secrets. For **`app.py`** (the Contract Version
-  Tracker), it also needs Firestore credentials — paste the
-  service-account JSON's full contents as a secret named
-  `FIRESTORE_SERVICE_ACCOUNT_JSON` (see `.streamlit/secrets.toml.example`
-  for the exact format), plus `GEMINI_API_KEY` and, optionally,
-  `APP_PASSCODE` if the deployment will be public.
-- **Hugging Face Spaces** — new Space, SDK: Streamlit, push this repo (or
-  connect the GitHub repo). Same secrets as above, added as Space secrets.
+A public deployment means anyone with the URL can trigger calls against
+your key (and, for `app.py`, read/write your Firestore data without
+`APP_PASSCODE` set) — keep keys out of a public deployment's secrets
+unless actively demoing, or take it down between demos.
 
-A note on cost/safety when deploying publicly: Gemini's free tier is
-generous for personal use, but a public URL means anyone who finds it can
-trigger calls against your key (and, for `app.py`, read/write your
-Firestore data if `APP_PASSCODE` isn't set). Keep keys out of a public
-deployment's secrets if you're not actively demoing it, set a passcode,
-or take the deployment down between demos, rather than leaving an
-open instance running indefinitely.
+## License
 
-The static demo (`demo/index.html`) is separate from the web app — it needs
-no Python backend at all, so it can go on **GitHub Pages** directly: push
-this repo, then in the repo's Settings → Pages, set the source to the
-`demo/` folder on your main branch.
+For educational and portfolio demonstration purposes.
