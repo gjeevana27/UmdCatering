@@ -1150,9 +1150,9 @@ def _render_chat_bubble(role: str, content: str) -> None:
     border = "var(--amber)" if is_user else "var(--line)"
     st.markdown(
         f'<div style="display:flex; justify-content:{align}; margin:4px 0;">'
-        f'<div style="max-width:78%; padding:8px 12px; border-radius:14px; '
-        f'background:{bg}; border:1px solid {border}; font-size:0.92em; '
-        f'line-height:1.4; color:var(--ink);">{_chat_bubble_html(content)}</div>'
+        f'<div style="max-width:78%; padding:6px 11px; border-radius:14px; '
+        f'background:{bg}; border:1px solid {border}; font-size:0.8em; '
+        f'line-height:1.35; color:var(--ink);">{_chat_bubble_html(content)}</div>'
         f'</div>',
         unsafe_allow_html=True,
     )

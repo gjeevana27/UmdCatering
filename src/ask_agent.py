@@ -38,7 +38,29 @@ Keep answers SHORT and scannable, like a text message, not a report:
   than a phrase per bullet, never a full sentence with a timestamp
   buried inside it.
 - Never invent structure the tool result didn't give you (don't pad a
-  one-line answer into paragraphs)."""
+  one-line answer into paragraphs).
+
+The lookup_event and notifications_for_event tools already return their
+results pre-structured, one field/item per line -- KEEP that structure
+in your answer instead of compressing it into a paragraph. Specifically:
+
+For event details, reply in exactly this shape (one field per line):
+Event <id>
+Date: <date>
+Time: <time>
+Location: <location>
+Guest count: <count>
+Menu:
+- <item> (<qty>)
+- <item> (<qty>)
+
+For change history, reply with one bolded timestamp per notification,
+followed by its changes as bullets:
+**<timestamp>**
+- <change>
+- <change>
+
+Never merge multiple fields or multiple changes onto one line."""
 
 
 def _format_time(iso_timestamp: str) -> str:
@@ -56,14 +78,21 @@ def _format_time(iso_timestamp: str) -> str:
 
 def _build_tools(client, division: str) -> list:
     def lookup_event(event_id: str, event_date: str) -> str:
-        """Looks up the exact stored contract record for this event_id AND event_date together."""
+        """Looks up the exact stored contract record for this event_id AND event_date together. Returns one field per line, menu items as a bulleted list with quantity -- pass this structure through as-is, don't compress it into a paragraph."""
         record = store.lookup(client, division, event_id, event_date)
         if record is None:
             return "no record on file for that exact event_id and event_date combination"
-        items = ", ".join(i.recipe_name for i in record.menu_items) or "(no menu items on file)"
-        return (f"Event {record.event_id}, {record.event_date}, {record.event_time}, "
-                f"location: {record.location}, type: {record.event_type}, "
-                f"guests: {record.guest_count}. Menu: {items}")
+        menu_lines = "\n".join(f"- {i.recipe_name} ({i.qty_unit})" for i in record.menu_items) \
+            or "- (no menu items on file)"
+        return (
+            f"Event {record.event_id}\n"
+            f"Date: {record.event_date}\n"
+            f"Time: {record.event_time}\n"
+            f"Location: {record.location}\n"
+            f"Event type: {record.event_type}\n"
+            f"Guest count: {record.guest_count}\n"
+            f"Menu:\n{menu_lines}"
+        )
 
     def find_other_dates(event_id: str) -> str:
         """Finds any OTHER stored dates on file for this event_id (a possible reschedule history)."""
@@ -82,16 +111,17 @@ def _build_tools(client, division: str) -> list:
                           for r in records)
 
     def notifications_for_event(event_id: str) -> str:
-        """Lists the permanent change history (every detected change, ever) for this event_id, most recent 10 first, with a short readable timestamp."""
+        """Lists the permanent change history (every detected change, ever) for this event_id, most recent 10 first, with a short readable timestamp. Returns one bolded timestamp per notification followed by its changes as a bulleted list -- pass this structure through as-is, don't merge multiple changes onto one line."""
         matches = [n for n in store.list_notifications(client, division, limit=100)
                    if n.get("event_id") == event_id]
         if not matches:
             return "no change history on file for this event_id"
-        lines = []
+        blocks = []
         for n in matches[:10]:
-            labels = "; ".join(c.get("label", "") for c in n.get("changes", []))
-            lines.append(f"{_format_time(n.get('created_at', ''))} -- {labels}")
-        return "\n".join(lines)
+            changes = "\n".join(f"- {c.get('label', '')}" for c in n.get("changes", [])) \
+                or "- (no changes recorded)"
+            blocks.append(f"**{_format_time(n.get('created_at', ''))}**\n{changes}")
+        return "\n\n".join(blocks)
 
     def get_dish_allergen_note(dish_name: str) -> str:
         """Returns any chef-confirmed allergens already on file for this exact dish name."""
