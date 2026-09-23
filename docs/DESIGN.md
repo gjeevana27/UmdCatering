@@ -184,6 +184,26 @@ project has been built around, for no real benefit.
   successfully routed, the Firestore write is permanent — nothing about
   moving a processed file to `processed/`, or deleting it there months
   later, touches what's already stored.
+- **The log file lives in `intake/_logs/`, not directly in `intake/`.**
+  Found by actually running the double-click launcher end to end
+  (`start_intake_agent.bat`), not by inspection: the log file was
+  originally written straight into the watched folder, so the startup
+  backlog scan saw its own log file sitting there and tried to
+  "process" it as an incoming document — which then crashed trying to
+  move a file the logger still had open for writing. Moving the log
+  into its own subfolder (invisible to the backlog scan the same way
+  `processed/` and `needs_review/` already are) fixed it at the root
+  cause rather than special-casing the log filename in the scanner.
+- **`start_intake_agent.bat`** — a double-click launcher for Windows, so
+  running this doesn't require a chef to open a terminal. Checks for
+  `.venv\Scripts\python.exe` first with a clear setup message if it's
+  missing, then runs `intake_agent.py` and stays open showing live log
+  output; `pause` at the end keeps the window from vanishing instantly
+  if it crashes, so the error is actually readable. All machine-specific
+  config (`INTAKE_FOLDER_PATH`, `GEMINI_API_KEY`,
+  `FIRESTORE_CREDENTIALS_PATH`) stays in `.env`, not in the batch file
+  itself, so the same launcher works unmodified on any machine it's
+  copied to.
 
 ## Guardrails
 

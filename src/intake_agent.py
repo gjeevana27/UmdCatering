@@ -31,6 +31,10 @@ data/real_examples/):
     intake/                 <- drop files here (the watched inbox)
       processed/             <- moved here after successful routing
       needs_review/          <- moved here + a .txt note, needs a human
+      _logs/                 <- intake_agent.log (kept OUT of the inbox
+                                 itself -- otherwise the startup backlog
+                                 scan would try to "process" the log file
+                                 as an incoming document)
 
 Firestore writes are permanent and independent of the source file from
 the moment they happen -- moving or even deleting a processed file
@@ -95,9 +99,18 @@ def _setup_logging(log_path: Path) -> None:
 def _folders(base: Path) -> tuple:
     processed = base / "processed"
     needs_review = base / "needs_review"
+    # The log file lives in its own subfolder, NOT directly in `base` --
+    # otherwise the startup backlog scan (which lists files directly
+    # inside `base`) would try to "process" the log file itself as an
+    # incoming document, and fail trying to move a file the
+    # RotatingFileHandler still has open for writing. Prefixed with `_`
+    # to read as "internal," not a document folder, to anyone browsing
+    # the watched folder.
+    logs = base / "_logs"
     processed.mkdir(parents=True, exist_ok=True)
     needs_review.mkdir(parents=True, exist_ok=True)
-    return processed, needs_review
+    logs.mkdir(parents=True, exist_ok=True)
+    return processed, needs_review, logs
 
 
 def _unique_dest(dest_dir: Path, name: str) -> Path:
@@ -234,9 +247,9 @@ def run(inbox_path: str = None) -> None:
     base = Path(inbox_path or os.environ.get("INTAKE_FOLDER_PATH")
                 or Path(__file__).resolve().parent.parent / "intake")
     base.mkdir(parents=True, exist_ok=True)
-    processed_dir, needs_review_dir = _folders(base)
+    processed_dir, needs_review_dir, logs_dir = _folders(base)
 
-    _setup_logging(base / "intake_agent.log")
+    _setup_logging(logs_dir / "intake_agent.log")
 
     creds_path = os.environ.get("FIRESTORE_CREDENTIALS_PATH")
     if not creds_path:
