@@ -187,16 +187,43 @@ client = get_firestore_client()
 # ---------------------------------------------------------------------------
 def _change_label(c) -> tuple:
     """Shared by the on-screen diff and the notification log, so a stored
-    notification always reads exactly like what was shown at upload time."""
+    notification always reads exactly like what was shown at upload time.
+
+    Returns (title, subtext, css). `title` is kept short and scannable --
+    what changed and, for a quantity, by how much -- so it reads at a
+    glance. Anything longer (an item's description, the full before/after
+    of a description edit) goes in `subtext` instead of being crammed
+    onto the same line, for display as a smaller continuation line below
+    the title rather than one long run-on string.
+    """
     if hasattr(c, "field"):  # FieldChange
-        label = f"{c.field.replace('_', ' ')}: {c.old_value} → {c.new_value}"
-        css = "field-changed"
-    else:  # MenuChange
-        tag = {"added": "ADDED", "removed": "REMOVED", "changed": "CHANGED"}[c.change_type]
-        label = f"{tag} — {c.recipe_name}: {c.detail}"
-        css = {"added": "menu-added", "removed": "menu-removed",
-               "changed": "menu-changed"}[c.change_type]
-    return label, css
+        title = f"{c.field.replace('_', ' ')}: {c.old_value} → {c.new_value}"
+        return title, "", "field-changed"
+
+    if c.change_type == "added":
+        qty = f" ({c.qty_unit})" if c.qty_unit else ""
+        return f"ADDED — {c.recipe_name}{qty}", c.item_description, "menu-added"
+
+    if c.change_type == "removed":
+        qty = f" (was {c.qty_unit})" if c.qty_unit else ""
+        return f"REMOVED — {c.recipe_name}{qty}", c.item_description, "menu-removed"
+
+    # "changed" -- qty/unit and/or description differ (see
+    # contract_store.diff_records). Keep a qty/unit change in the title
+    # itself (short, always worth seeing immediately); push a description
+    # change's full before/after to the subtext line instead.
+    qty_changed = "qty/unit:" in c.detail
+    desc_changed = bool(c.old_description or c.new_description)
+    if qty_changed and not desc_changed:
+        title = f"CHANGED — {c.recipe_name}: {c.detail}"
+        subtext = ""
+    elif desc_changed and not qty_changed:
+        title = f"CHANGED — {c.recipe_name}: description updated"
+        subtext = f"'{c.old_description}' → '{c.new_description}'"
+    else:
+        title = f"CHANGED — {c.recipe_name}: qty/unit and description updated"
+        subtext = c.detail
+    return title, subtext, "menu-changed"
 
 
 def _serialize_decisions(result: dict) -> list:
@@ -205,8 +232,8 @@ def _serialize_decisions(result: dict) -> list:
     out = []
     for bucket in ("escalate", "review"):
         for d in result[bucket]:
-            label, _ = _change_label(d.change)
-            out.append({"label": label, "decision": bucket,
+            title, subtext, _ = _change_label(d.change)
+            out.append({"label": title, "subtext": subtext, "decision": bucket,
                         "reasoning": d.reasoning, "made_by": d.made_by})
     return out
 
@@ -625,9 +652,15 @@ def _render_notification_row(n: dict, dt):
                 with col_c_text:
                     icon = "🔴" if c.get("decision") == "escalate" else "🟡"
                     tag_label = "[RULE]" if c.get("made_by") == "rule" else "[JUDGED]"
+                    subtext = c.get("subtext", "")
+                    subtext_html = (
+                        f'<span style="font-size:0.85em; color:var(--ink-soft);">'
+                        f'{subtext}</span><br>' if subtext else ""
+                    )
                     st.markdown(
                         f'{icon} <span style="font-size:1.15em; font-weight:700;">'
                         f'{c.get("label", "")}</span><br>'
+                        f'{subtext_html}'
                         f'<span style="font-size:0.9em; font-style:italic; '
                         f'color:var(--ink-soft);">{tag_label} {c.get("reasoning", "")}</span>',
                         unsafe_allow_html=True,
@@ -728,8 +761,19 @@ def render_notifications():
     # Fully-reviewed notifications (dismissed outright, or every individual
     # change checked off) don't show in the feed at all.
     unread = [n for n in all_notifications if not n.get("reviewed", False)]
-
     unread_count = len(unread)
+
+    # Confetti only fires on a genuine had-unread -> now-zero TRANSITION
+    # within this browser session, never just from landing on an
+    # already-empty/caught-up state (e.g. opening the app fresh, or
+    # switching tabs and back). `last_seen_unread_count` starts unset on a
+    # brand-new session -- None specifically means "haven't observed a
+    # count yet," so the very first render never counts as a transition
+    # even if it happens to already be zero.
+    prev_count = st.session_state.get("last_seen_unread_count")
+    just_caught_up = prev_count is not None and prev_count > 0 and unread_count == 0
+    st.session_state["last_seen_unread_count"] = unread_count
+
     header_text = f"🔔 Notifications ({unread_count})" if unread_count else "🔔 Notifications"
     st.header(header_text)
     st.caption("Every change detected when an uploaded contract was compared "
@@ -749,7 +793,7 @@ def render_notifications():
             # Fires once per catch-up, not on every rerun of this same
             # empty state (e.g. switching tabs and back) -- resets below
             # as soon as a new notification shows up again.
-            if not st.session_state.get("confetti_shown", False):
+            if just_caught_up and not st.session_state.get("confetti_shown", False):
                 st.session_state["confetti_shown"] = True
                 _fire_confetti()
         else:
@@ -1034,25 +1078,17 @@ st.caption("Upload a contract, and it's compared against whatever's already on "
            "and Goodies To Go are kept in completely separate storage; a "
            "contract from one is never compared against the other.")
 
-_unread_count = sum(1 for n in _fetch_all_notifications() if not n.get("reviewed", False))
-# The tab label text itself is a FIXED string, "Notifications" -- never
-# "Notifications (N)". st.tabs() re-derives which tab is selected from its
-# own argument list on every rerun, and changing that list's contents
-# (even just the count in one label) was resetting the selection back to
-# the first tab on every click that changed the unread count -- exactly
-# the bug this caused. The count still shows, just in the in-page heading
-# (render_notifications()) instead of the tab pill. Only the ring (a pure
-# CSS ::before insertion, unrelated to the tabs() argument list) still
-# reacts to the count.
-_bell_ring_css = "animation: bell-ring 4s ease-in-out infinite;" if _unread_count else ""
-st.markdown(
-    # Notifications is tab 3 of 4 now that Allergen Scan follows it -- was
-    # :last-child when Notifications itself was the last tab; that
-    # selector would silently start ringing the wrong tab if left as-is.
-    '<style>.stTabs [data-baseweb="tab"]:nth-child(3)::before { content: "🔔 "; '
-    'display: inline-block; transform-origin: 50% 20%; ' + _bell_ring_css + ' }</style>',
-    unsafe_allow_html=True,
-)
+# The tab label text passed to st.tabs() is a FIXED string,
+# "Notifications" -- never "Notifications (N)". st.tabs() re-derives which
+# tab is selected from its own argument list on every rerun, and changing
+# that list's contents (even just the count in one label) was resetting
+# the selection back to the first tab on every click that changed the
+# unread count. A count badge rendered directly ON the tab pill was tried
+# four different ways (CSS ::before, inserting into the tab, a fixed
+# overlay, an absolute overlay) and none rendered reliably or in the
+# right place -- dropped. The count is fully reliable in the in-page
+# "🔔 Notifications (N)" heading instead (see render_notifications()),
+# one click away, with no risk of the DOM-hack failure modes above.
 tab_gt, tab_gtg, tab_notifications, tab_allergen = st.tabs(
     store.DIVISIONS + ["Notifications", "🔎 Allergen Scan"], key="main_tabs")
 with tab_gt:

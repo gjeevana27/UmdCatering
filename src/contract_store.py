@@ -425,6 +425,13 @@ class MenuChange:
     # judge_contract_change call -- that conflation previously produced a
     # hallucinated reasoning that referenced the dish's NAME as if it were
     # part of the description that changed).
+    qty_unit: str = ""           # populated for "added"/"removed" entries
+    item_description: str = ""   # populated for "added"/"removed" entries
+    # -- same idea as old_description/new_description above: kept as their
+    # own fields so a UI can build a short title ("ADDED -- Dish (qty)")
+    # with the description on its own line, instead of the single long
+    # "New item: qty -- description" string in `detail` (still built, kept
+    # for anything that just wants one plain-text line).
 
 
 def diff_records(old: ContractRecord, new: ContractRecord) -> tuple:
@@ -469,12 +476,14 @@ def diff_records(old: ContractRecord, new: ContractRecord) -> tuple:
             menu_changes.append(MenuChange(
                 change_type="added", recipe_name=item.recipe_name,
                 detail=f"New item: {item.qty_unit} — {item.description}".strip(" —"),
+                qty_unit=item.qty_unit, item_description=item.description,
             ))
     for key, item in old_items.items():
         if key not in new_items:
             menu_changes.append(MenuChange(
                 change_type="removed", recipe_name=item.recipe_name,
                 detail=f"No longer on the contract (was: {item.qty_unit} — {item.description})".strip(),
+                qty_unit=item.qty_unit, item_description=item.description,
             ))
     for key in set(old_items) & set(new_items):
         o, n = old_items[key], new_items[key]
