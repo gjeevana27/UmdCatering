@@ -1187,20 +1187,29 @@ def _render_ask_content():
         st.session_state[history_key] = []
         st.rerun()
 
+    # History renders FIRST, in plain top-to-bottom document order --
+    # then the input, so it's the last thing on the page. The earlier
+    # bug wasn't stickiness, it was that a just-submitted question's
+    # reply used to be rendered INLINE right after the st.chat_input()
+    # call, landing physically below the input box in the DOM. Fixed by
+    # never rendering the new exchange inline at all: it's appended to
+    # session_state and answered with an immediate st.rerun(), so the
+    # render that actually shows it goes through this SAME loop as
+    # every older message, in its natural place at the end, above the
+    # input -- not a special case that could end up in the wrong spot.
     for msg in st.session_state[history_key]:
         _render_chat_bubble(msg["role"], msg["content"])
 
     question = st.chat_input(f"Ask about {division}...")
     if question:
         st.session_state[history_key].append({"role": "user", "content": question})
-        _render_chat_bubble("user", question)
         with st.spinner("Looking..."):
             try:
                 answer = ask_agent.ask(client, division, question)
             except Exception as e:
                 answer = f"Something went wrong: {e}"
-        _render_chat_bubble("assistant", answer)
         st.session_state[history_key].append({"role": "assistant", "content": answer})
+        st.rerun()
 
 
 @st.dialog("Ask")
