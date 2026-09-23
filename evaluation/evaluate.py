@@ -120,6 +120,8 @@ def main():
           "and averaging them would hide a safety-critical miss behind "
           "decent overall numbers.")
 
+    return 1 if (all_fn or all_fp) else 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

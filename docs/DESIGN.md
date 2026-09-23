@@ -374,6 +374,15 @@ common call points), not specific to either one:
   reasonable real-time signal, not a guarantee of catching every relevant
   recall — a real deployment would want to match against a supplier's
   actual product/lot numbers where available.
+- **The rate-limit circuit breaker is per-process, not persisted.**
+  `rate_guard.py`'s daily counter lives in memory — it resets on every app
+  restart and isn't shared across instances if this were ever deployed as
+  more than one replica. That's a deliberate scoping choice, not an
+  oversight: this is a single-instance Streamlit deployment, and the
+  actual spend ceiling is Google Cloud's own billing alerts, not this
+  counter — persisting it to Firestore would mean a database round-trip
+  on every single Gemini call just to track a number that already has an
+  authoritative backstop elsewhere.
 - **Small eval sets, and real coverage gaps remain.** 3 of the 4 sample
   events (`agent.py`'s eval), 8 synthetic scenarios
   (`contract_agent.py`'s eval, `evaluate_contract_agent.py`), and 8

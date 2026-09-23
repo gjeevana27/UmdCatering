@@ -137,7 +137,8 @@ optional live recall check → `agent.py::decide()`):
 
 Three separate harnesses, one per decision layer — deliberately kept
 separate rather than one blended score, since they test different things
-and one of them costs money to run.
+and one of them costs money to run. The two deterministic harnesses run
+automatically on every push via [GitHub Actions](.github/workflows/evals.yml).
 
 | Harness | Tests | Cases | Metric | Score |
 |---|---|---|---|---|
