@@ -437,8 +437,15 @@ def diff_records(old: ContractRecord, new: ContractRecord) -> tuple:
     two unrelated-looking findings.
     """
     field_changes = []
+    # time_desc_notes deliberately excluded -- it's a large concatenated
+    # blob (Instructions + Equipment/Food delivery times, etc.), and in
+    # practice it's been the single noisiest field in this diff: Gemini
+    # reads it inconsistently between calls far more than any other field
+    # (see the likely_extraction_miss rule below, added for exactly this
+    # field originally), and even a "genuine" change here is usually the
+    # same information reordered/reformatted rather than something new.
     scalar_fields = ["event_date", "event_time", "location", "event_type",
-                      "guest_count", "time_desc_notes"]
+                      "guest_count"]
     for f in scalar_fields:
         old_val, new_val = getattr(old, f), getattr(new, f)
         if f == "event_date":
