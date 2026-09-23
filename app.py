@@ -927,6 +927,18 @@ def _render_event_allergen_box(source_filename: str, data: dict):
             results = allergen_scan.scan_text_ingredients(ingredients)
             noted = store.get_dish_allergen_note(client, name) if client is not None else []
             noted_lower = {n.strip().lower() for n in noted}
+            # "no allergens" is a deliberate chef override, not just
+            # another category -- once on file, showing fresh checkbox
+            # suggestions for this dish on any later scan would silently
+            # contradict it ("Already known: no allergens" right next to
+            # a still-unticked "MILK" checkbox looks like the note never
+            # took effect). So it's treated as fully terminal: no more
+            # checklist noise for this dish, ever, same as the save-note
+            # input already is below. A dish with real confirmed
+            # categories (not "no allergens") still gets checkboxes for
+            # any NEW category a later scan turns up -- that's a
+            # genuinely different, still-open fact, not noise.
+            no_allergens_noted = "no allergens" in noted_lower
 
             st.markdown(f"**{name}**")
 
@@ -942,8 +954,9 @@ def _render_event_allergen_box(source_filename: str, data: dict):
             # the raw stored version, which never matched, so a confirmed
             # checkbox never actually left the pending list and kept
             # re-saving itself as a duplicate on every single rerun.
-            pending_results = {c: m for c, m in results.items()
-                               if c.lower() not in noted_lower}
+            pending_results = {} if no_allergens_noted else {
+                c: m for c, m in results.items() if c.lower() not in noted_lower
+            }
             if noted or pending_results:
                 any_findings = True
 
