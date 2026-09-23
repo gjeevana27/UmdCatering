@@ -60,7 +60,19 @@ followed by its changes as bullets:
 - <change>
 - <change>
 
-Never merge multiple fields or multiple changes onto one line."""
+Never merge multiple fields or multiple changes onto one line.
+
+The SAME event_id can legitimately be a completely different booking
+that reused the number on a different date -- this project never treats
+two different dates under one event_id as the same event. So:
+- If a question gives an event_id with NO date, and you haven't already
+  confirmed which date they mean earlier in this conversation, call
+  find_other_dates first. If it returns more than one date, list them
+  and ASK which one before calling lookup_event or notifications_for_event
+  -- don't just pick the most recent one.
+- If notifications_for_event comes back with an AMBIGUOUS result, relay
+  that to the chef directly and ask which date, rather than picking one
+  yourself or silently merging the history."""
 
 
 def _format_time(iso_timestamp: str) -> str:
@@ -110,12 +122,36 @@ def _build_tools(client, division: str) -> list:
         return "; ".join(f"Event {r.event_id} at {r.location} ({r.guest_count} guests)"
                           for r in records)
 
-    def notifications_for_event(event_id: str) -> str:
-        """Lists the permanent change history (every detected change, ever) for this event_id, most recent 10 first, with a short readable timestamp. Returns one bolded timestamp per notification followed by its changes as a bulleted list -- pass this structure through as-is, don't merge multiple changes onto one line."""
-        matches = [n for n in store.list_notifications(client, division, limit=100)
-                   if n.get("event_id") == event_id]
-        if not matches:
+    def notifications_for_event(event_id: str, event_date: str = "") -> str:
+        """Lists the permanent change history for this event_id, most recent 10 first, one bolded timestamp per notification followed by its changes as a bulleted list. If event_date is omitted and this event_id has history under MORE THAN ONE date, returns an AMBIGUOUS warning instead of history -- the same event_id can legitimately be a different booking that reused the number on a different date, and that history must never be silently mixed with this one. When that happens, call this tool again with event_date set to the one the chef confirms."""
+        all_matches = [n for n in store.list_notifications(client, division, limit=100)
+                       if n.get("event_id") == event_id]
+        if not all_matches:
             return "no change history on file for this event_id"
+
+        distinct_dates = {n["event_date"] for n in all_matches if n.get("event_date")}
+        if event_date:
+            # A notification with NO event_date on file (saved before
+            # this field existed) is included rather than excluded --
+            # treating "unknown" as "assume relevant" is the safer
+            # direction of error here. Excluding it outright would
+            # silently hide real history for every notification saved
+            # before this fix, which is worse than occasionally showing
+            # an old notification that (rarely) turns out to belong to a
+            # different date's booking under the same event_id.
+            matches = [n for n in all_matches if not n.get("event_date")
+                       or store.dates_match(n["event_date"], event_date)]
+            if not matches:
+                return f"no change history on file for event_id {event_id} on {event_date}"
+        elif len(distinct_dates) > 1:
+            return (f"AMBIGUOUS: event_id {event_id} has change history under more than one "
+                    f"date ({', '.join(sorted(distinct_dates))}) -- these may be different "
+                    f"bookings that happen to reuse this number, not the same event. Ask the "
+                    f"chef which date they mean before answering, then call this tool again "
+                    f"with event_date set.")
+        else:
+            matches = all_matches
+
         blocks = []
         for n in matches[:10]:
             changes = "\n".join(f"- {c.get('label', '')}" for c in n.get("changes", [])) \

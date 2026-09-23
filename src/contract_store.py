@@ -262,7 +262,7 @@ def _notification_collection(client: firestore.Client, division: str):
 
 
 def save_notification(client: firestore.Client, division: str, event_id: str,
-                       source_filename: str, changes: list) -> None:
+                       source_filename: str, changes: list, event_date: str = "") -> None:
     """
     Logs one notification: a new upload was compared against the stored
     version for `event_id` and came back with at least one change. Kept as
@@ -275,9 +275,24 @@ def save_notification(client: firestore.Client, division: str, event_id: str,
     flattened, display-ready form of contract_agent's ChangeDecision list,
     stored as plain data since the original FieldChange/MenuChange objects
     aren't relevant once already summarized into a label.
+
+    event_date: the event_date this notification's diff was computed
+    against (the NEW record's date, i.e. what's currently on file).
+    Optional (defaults to "") purely so this stays backward-compatible
+    with any already-stored notification read back via _record_from_dict-
+    style defensive .get() calls -- new notifications should always pass
+    it. Added specifically so a chatbot or anything else querying "change
+    history for event X" can tell apart two different bookings that
+    happen to reuse the same event_id under two different dates, which
+    the (event_id, event_date) composite matching this whole project is
+    built around treats as never-to-be-conflated. Before this field
+    existed, notifications_for_event()-style lookups could only filter
+    by event_id, silently mixing history from unrelated bookings that
+    happen to share a number.
     """
     _notification_collection(client, division).add({
         "event_id": event_id,
+        "event_date": event_date,
         "division": division,
         "source_filename": source_filename,
         "created_at": datetime.now(timezone.utc).isoformat(),

@@ -302,7 +302,8 @@ def _evaluate_and_store(division: str, data: dict, prior, new_record, *, migrate
                 "message": f"{reschedule_note}No other changes for event {new_record.event_id}."}
 
     store.save_notification(client, division, new_record.event_id,
-                             new_record.source_filename, serialized)
+                             new_record.source_filename, serialized,
+                             event_date=new_record.event_date)
     escalate_n = sum(1 for c in serialized if c["decision"] == "escalate")
     review_n = len(serialized) - escalate_n
     icon = "🔴" if escalate_n else "🟡"
@@ -1185,7 +1186,7 @@ def _render_ask_content():
 
     if st.session_state[history_key] and st.button("Clear conversation", key="ask_clear"):
         st.session_state[history_key] = []
-        st.rerun()
+        st.rerun(scope="fragment")  # same reasoning as below -- a bare rerun here closed the dialog too
 
     # History renders FIRST, in plain top-to-bottom document order --
     # then the input, so it's the last thing on the page. The earlier
@@ -1209,7 +1210,13 @@ def _render_ask_content():
             except Exception as e:
                 answer = f"Something went wrong: {e}"
         st.session_state[history_key].append({"role": "assistant", "content": answer})
-        st.rerun()
+        # scope="fragment", NOT a bare st.rerun() -- st.dialog inherits
+        # st.fragment behavior, and Streamlit's own docs are explicit that
+        # a bare (full-app-scoped) rerun from inside a dialog closes it,
+        # since the dialog-opening function never gets called again
+        # during a full-app rerun. This was exactly the "chat closes
+        # after every question" bug.
+        st.rerun(scope="fragment")
 
 
 @st.dialog("Ask")

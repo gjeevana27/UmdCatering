@@ -186,6 +186,28 @@ already are instead of needing to navigate away first.
   Notifications tab already uses (`Sep 23, 06:37 PM EST`) before it ever
   reaches the model, so the model's answer reads like a message, not a
   data dump it's relaying verbatim.
+- **Notifications now carry `event_date`** (`contract_store.save_notification()`
+  gained an `event_date` parameter). Without it, `notifications_for_event()`
+  could only filter by `event_id` -- and the same `event_id` can
+  legitimately be a completely different booking that reused the number
+  on a different date, which this project never treats as the same
+  event anywhere else. When that tool finds history under more than one
+  date for an `event_id`, it returns an `AMBIGUOUS` result instead of
+  silently merging both bookings' history together, and the system
+  prompt instructs the model to ask the chef which date before
+  answering rather than guessing. A notification saved before this
+  field existed has no `event_date` on file -- treated as "assume
+  relevant" (included) rather than excluded when a specific date is
+  requested, since silently hiding real history is worse than
+  occasionally including an old notification that turns out to belong
+  to a different date's booking.
+- **`st.rerun()` inside the dialog must be `scope="fragment"`, never
+  bare.** `st.dialog` inherits `st.fragment` behavior -- Streamlit's own
+  docs are explicit that a bare (full-app-scoped) rerun from inside a
+  dialog closes it, since the dialog-opening function is never called
+  again during a full-app rerun. A bare `st.rerun()` after answering a
+  question, or after clearing the conversation, was exactly why the
+  chat closed itself after every message.
 - **Same shared tool-loop as the investigation agent**
   (`llm_client.run_tool_loop()`) — no separate loop implementation, same
   manual-control-for-rate_guard reasoning documented above.
