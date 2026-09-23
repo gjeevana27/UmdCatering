@@ -146,11 +146,24 @@ upload.
 
 ### Ask chatbot (`src/ask_agent.py`)
 
-A read-only "Ask" tab — a chat interface over stored events and change
-history, for open-ended questions ("what's on the menu for event X,"
-"what's happening on this date," "has this event had any changes
-logged") that don't map to a specific button anywhere else in the app.
+A read-only chat interface over stored events and change history, for
+open-ended questions ("what's on the menu for event X," "what's
+happening on this date," "has this event had any changes logged") that
+don't map to a specific button anywhere else in the app. Surfaced as a
+**floating button** (bottom-right, present on every tab), not its own
+tab — opens as a popup (`st.dialog`) so it's reachable from wherever you
+already are instead of needing to navigate away first.
 
+- **The floating button is a real `st.button()`, not an injected HTML
+  element.** Positioned via CSS targeting the `st-key-<key>` class
+  Streamlit adds to a container given a `key` (a stable, documented
+  mechanism), rather than the confetti effect's approach of injecting a
+  plain DOM element outside Streamlit's component tree via
+  `components.html()`. The two look similar (both are "just CSS
+  positioning" on the surface) but solve different problems: a plain
+  injected element can't trigger a Python rerun or open a dialog without
+  a full custom bidirectional component; a real `st.button()` inside a
+  styled container gets that for free.
 - **Same shared tool-loop as the investigation agent**
   (`llm_client.run_tool_loop()`) — no separate loop implementation, same
   manual-control-for-rate_guard reasoning documented above.
@@ -160,9 +173,9 @@ logged") that don't map to a specific button anywhere else in the app.
   `get_dish_allergen_note`, `check_known_allergens`. No write-capable
   tool exists.
 - **Scoped to one division per conversation**, with a division selector
-  at the top of the tab — switching divisions starts a fresh
-  conversation rather than letting one chat span both, preserving the
-  hard boundary enforced everywhere else in this app.
+  inside the popup — switching divisions starts a fresh conversation
+  rather than letting one chat span both, preserving the hard boundary
+  enforced everywhere else in this app.
 - `contract_store.find_by_date()` is a full collection scan filtered by
   fuzzy `dates_match()`, not an indexed query — `event_date` isn't
   stored in a normalized form, so there's no field to index on directly.

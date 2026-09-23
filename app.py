@@ -1100,13 +1100,14 @@ def render_allergen_scan():
                 _render_event_allergen_box(scan["source_filename"], scan["data"])
 
 
-def render_ask_tab():
+def _render_ask_content():
     """Read-only chatbot over stored contract/notification data (see
     src/ask_agent.py). Scoped to ONE division per conversation, same hard
     boundary enforced everywhere else in this app -- switching the
     division selector starts a fresh conversation rather than letting one
-    chat span both."""
-    st.header("Ask")
+    chat span both. Rendered inside the floating-button dialog below, not
+    its own tab -- the dialog already shows "Ask" as its title bar, so no
+    redundant header here."""
     st.caption("Ask about events, dates, and change history already on file — "
                "read-only, scoped to one division at a time. Never changes any "
                "decision or stored data.")
@@ -1147,6 +1148,43 @@ def render_ask_tab():
         st.session_state[history_key].append({"role": "assistant", "content": answer})
 
 
+@st.dialog("Ask")
+def _open_ask_dialog():
+    _render_ask_content()
+
+
+def _render_ask_fab():
+    """Floating chat-bubble button, bottom-right corner, present on every
+    tab -- opens the Ask chatbot as a popup dialog instead of taking up
+    its own tab. Placed once, outside any `with tab_x:` block, since
+    Streamlit re-executes the whole script on every rerun regardless of
+    which tab is visually selected (see the dish-key crash fix above for
+    why that matters) -- so this renders unconditionally every time,
+    exactly like a real floating widget should.
+
+    Positioned via CSS targeting the `st-key-<key>` class Streamlit adds
+    to a keyed container (a stable, documented mechanism) -- NOT by
+    injecting a plain HTML/JS element outside Streamlit's own component
+    tree the way the confetti effect does. A plain injected button can't
+    trigger a Python rerun/dialog on its own without a full custom
+    bidirectional component; a real st.button() inside a styled
+    container gets that for free, which is why this approach was chosen
+    over the confetti-style one despite both being "just CSS
+    positioning" on the surface.
+    """
+    st.markdown("""
+<style>
+div.st-key-ask_fab{position:fixed;bottom:24px;right:24px;z-index:9999;width:auto;}
+div.st-key-ask_fab button{border-radius:50%;width:56px;height:56px;
+font-size:1.5rem;line-height:1;box-shadow:0 2px 10px rgba(0,0,0,0.35);
+padding:0;}
+</style>
+""", unsafe_allow_html=True)
+    with st.container(key="ask_fab"):
+        if st.button("💬", key="ask_fab_button", help="Ask about stored events"):
+            _open_ask_dialog()
+
+
 # ---------------------------------------------------------------------------
 # Layout — one section per division, side by side, never mixed, plus a
 # combined notifications feed.
@@ -1168,8 +1206,8 @@ st.caption("Upload a contract, and it's compared against whatever's already on "
 # right place -- dropped. The count is fully reliable in the in-page
 # "🔔 Notifications (N)" heading instead (see render_notifications()),
 # one click away, with no risk of the DOM-hack failure modes above.
-tab_gt, tab_gtg, tab_notifications, tab_allergen, tab_ask = st.tabs(
-    store.DIVISIONS + ["Notifications", "🔎 Allergen Scan", "Ask"], key="main_tabs")
+tab_gt, tab_gtg, tab_notifications, tab_allergen = st.tabs(
+    store.DIVISIONS + ["Notifications", "🔎 Allergen Scan"], key="main_tabs")
 with tab_gt:
     process_division("Good Tidings")
 with tab_gtg:
@@ -1178,5 +1216,5 @@ with tab_notifications:
     render_notifications()
 with tab_allergen:
     render_allergen_scan()
-with tab_ask:
-    render_ask_tab()
+
+_render_ask_fab()

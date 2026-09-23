@@ -45,7 +45,8 @@ Google Cloud Firestore · python-dateutil
 - **Allergen Scan tab** — Gemini-inferred ingredients (labeled as
   inference, never as verified), confirmed findings persisted to a
   growing per-dish allergen reference.
-- **Ask tab** — read-only chatbot over stored events and change history,
+- **Ask** — a floating chat button (bottom-right, every tab) opens a
+  read-only chatbot over stored events and change history as a popup,
   scoped to one division at a time; can't write or change anything, only
   look things up.
 - **Guardrails** — PII cleanup, a daily API call-count circuit breaker,
@@ -212,8 +213,9 @@ export FIRESTORE_CREDENTIALS_PATH=... # required -- path to a service-account JS
 streamlit run app.py
 ```
 
-Opens at `http://localhost:8501`. Five tabs: Good Tidings, Goodies To Go,
-Notifications, Allergen Scan, Ask.
+Opens at `http://localhost:8501`. Four tabs: Good Tidings, Goodies To Go,
+Notifications, Allergen Scan — plus a floating Ask button (bottom-right)
+on every tab, opening the chatbot as a popup.
 
 ### CLI
 
