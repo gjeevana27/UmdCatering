@@ -164,6 +164,28 @@ already are instead of needing to navigate away first.
   injected element can't trigger a Python rerun or open a dialog without
   a full custom bidirectional component; a real `st.button()` inside a
   styled container gets that for free.
+- **Chat bubbles are custom HTML, not `st.chat_message()`.** Streamlit's
+  built-in chat message container has no `key` parameter, so there's no
+  reliable way to CSS-target a user message differently from an
+  assistant message by role -- the same gap the floating button worked
+  around, solved the same way: real markup this project controls
+  directly (`_render_chat_bubble()`) instead of fighting an opaque
+  built-in component's internal DOM. Right-aligned/amber for the chef's
+  own messages, left-aligned/neutral for the assistant's. A minimal
+  markdown-to-HTML pass (`_chat_bubble_html()`) handles just `**bold**`
+  and `- ` bullet lists -- not a full renderer, since the model's
+  answers are short facts/lists, never tables or code -- and escapes
+  the raw text BEFORE inserting any of that markup, so nothing in a
+  question or answer can inject real HTML.
+- **Tool output is formatted for a chat bubble, not a log file.**
+  `notifications_for_event()`'s raw `created_at` is a full ISO 8601
+  timestamp with microseconds and a UTC offset
+  (`2026-09-23T22:37:06.575606+00:00`) -- readable as data, not as
+  something a chef wants to read in a conversation. Reformatted to the
+  same "always EST, real Eastern clock time" convention the
+  Notifications tab already uses (`Sep 23, 06:37 PM EST`) before it ever
+  reaches the model, so the model's answer reads like a message, not a
+  data dump it's relaying verbatim.
 - **Same shared tool-loop as the investigation agent**
   (`llm_client.run_tool_loop()`) — no separate loop implementation, same
   manual-control-for-rate_guard reasoning documented above.

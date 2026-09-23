@@ -15,9 +15,14 @@ No write-capable tool exists at all -- that's the actual enforcement of
 "never takes an action," not just a prompt instruction.
 """
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import allergen_reference
 import contract_store as store
 import llm_client
+
+EASTERN = ZoneInfo("America/New_York")
 
 SYSTEM_PROMPT = """You are a read-only assistant answering a chef's
 questions about their catering operation's stored contract data. You
@@ -25,8 +30,28 @@ have tools to look up events, dates, and change history already on
 file -- use them to answer; never guess or invent a fact you didn't get
 from a tool. If nothing on file answers the question, say so plainly
 ("I don't have that on file") rather than speculating. When you cite a
-fact, name which event/date/notification it came from. Keep answers
-short and direct."""
+fact, name which event/date/notification it came from.
+
+Keep answers SHORT and scannable, like a text message, not a report:
+- A couple of sentences for a simple fact.
+- A short bulleted list for multiple items -- one line each, no more
+  than a phrase per bullet, never a full sentence with a timestamp
+  buried inside it.
+- Never invent structure the tool result didn't give you (don't pad a
+  one-line answer into paragraphs)."""
+
+
+def _format_time(iso_timestamp: str) -> str:
+    """Same 'always EST, clock time in real Eastern time' convention the
+    Notifications tab already uses -- a raw ISO string with microseconds
+    and a UTC offset ('2026-09-23T22:37:06.575606+00:00') is exactly the
+    kind of thing that made the chat's answers look like a data dump
+    instead of a conversation."""
+    try:
+        dt = datetime.fromisoformat(iso_timestamp).astimezone(EASTERN)
+        return dt.strftime("%b %d, %I:%M %p EST")
+    except (ValueError, TypeError):
+        return iso_timestamp or "unknown time"
 
 
 def _build_tools(client, division: str) -> list:
@@ -57,18 +82,15 @@ def _build_tools(client, division: str) -> list:
                           for r in records)
 
     def notifications_for_event(event_id: str) -> str:
-        """Lists the permanent change history (every detected change, ever) for this event_id, most recent first."""
+        """Lists the permanent change history (every detected change, ever) for this event_id, most recent 10 first, with a short readable timestamp."""
         matches = [n for n in store.list_notifications(client, division, limit=100)
                    if n.get("event_id") == event_id]
         if not matches:
             return "no change history on file for this event_id"
         lines = []
         for n in matches[:10]:
-            labels = "; ".join(
-                f"{c.get('label', '')} ({c.get('decision', '')})"
-                for c in n.get("changes", [])
-            )
-            lines.append(f"{n.get('created_at', '?')}: {labels}")
+            labels = "; ".join(c.get("label", "") for c in n.get("changes", []))
+            lines.append(f"{_format_time(n.get('created_at', ''))} -- {labels}")
         return "\n".join(lines)
 
     def get_dish_allergen_note(dish_name: str) -> str:

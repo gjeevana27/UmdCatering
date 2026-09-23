@@ -26,8 +26,10 @@ Requires:
 
 import contextlib
 import hashlib
+import html
 import json
 import os
+import re
 import sys
 import tempfile
 from datetime import datetime
@@ -1100,6 +1102,62 @@ def render_allergen_scan():
                 _render_event_allergen_box(scan["source_filename"], scan["data"])
 
 
+def _chat_bubble_html(text: str) -> str:
+    """Minimal markdown -> HTML for a chat bubble: **bold** and a run of
+    '- '/'* ' lines become a real <ul>. Not a full markdown renderer --
+    the model's answers are short facts/lists, never tables or code, so
+    this is deliberately just enough, not a new dependency for the rest.
+    Escapes the raw text FIRST, then inserts real tags for the bits WE
+    add, so nothing in the model's (or the chef's) own text is ever
+    interpreted as markup."""
+    lines = [html.escape(line) for line in text.strip().split("\n")]
+    out, bullet_buffer = [], []
+
+    def _flush_bullets():
+        if bullet_buffer:
+            out.append("<ul style='margin:4px 0 4px 18px; padding:0;'>"
+                       + "".join(f"<li>{b}</li>" for b in bullet_buffer) + "</ul>")
+            bullet_buffer.clear()
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("- ") or stripped.startswith("* "):
+            bullet_buffer.append(stripped[2:])
+        else:
+            _flush_bullets()
+            if stripped:
+                out.append(stripped)
+    _flush_bullets()
+
+    html_text = "<br>".join(out)
+    # **bold** -> <b>bold</b>, applied after escaping so a literal "<" or
+    # "&" typed by anyone never becomes real markup.
+    return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", html_text)
+
+
+def _render_chat_bubble(role: str, content: str) -> None:
+    """A single WhatsApp-style bubble -- right-aligned/amber for the
+    chef's own messages, left-aligned/neutral for the assistant's. Built
+    as plain HTML (st.markdown(..., unsafe_allow_html=True)) rather than
+    st.chat_message(), which has no `key` parameter and therefore no
+    reliable way to CSS-target one message differently from another by
+    role -- same reasoning as the floating Ask button using a real,
+    keyed st.container() instead of fighting an opaque built-in
+    component's internal DOM."""
+    is_user = role == "user"
+    align = "flex-end" if is_user else "flex-start"
+    bg = "var(--amber-bg)" if is_user else "var(--paper-raised)"
+    border = "var(--amber)" if is_user else "var(--line)"
+    st.markdown(
+        f'<div style="display:flex; justify-content:{align}; margin:4px 0;">'
+        f'<div style="max-width:78%; padding:8px 12px; border-radius:14px; '
+        f'background:{bg}; border:1px solid {border}; font-size:0.92em; '
+        f'line-height:1.4; color:var(--ink);">{_chat_bubble_html(content)}</div>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+
 def _render_ask_content():
     """Read-only chatbot over stored contract/notification data (see
     src/ask_agent.py). Scoped to ONE division per conversation, same hard
@@ -1130,21 +1188,18 @@ def _render_ask_content():
         st.rerun()
 
     for msg in st.session_state[history_key]:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+        _render_chat_bubble(msg["role"], msg["content"])
 
     question = st.chat_input(f"Ask about {division}...")
     if question:
         st.session_state[history_key].append({"role": "user", "content": question})
-        with st.chat_message("user"):
-            st.markdown(question)
-        with st.chat_message("assistant"):
-            with st.spinner("Looking..."):
-                try:
-                    answer = ask_agent.ask(client, division, question)
-                except Exception as e:
-                    answer = f"Something went wrong: {e}"
-            st.markdown(answer)
+        _render_chat_bubble("user", question)
+        with st.spinner("Looking..."):
+            try:
+                answer = ask_agent.ask(client, division, question)
+            except Exception as e:
+                answer = f"Something went wrong: {e}"
+        _render_chat_bubble("assistant", answer)
         st.session_state[history_key].append({"role": "assistant", "content": answer})
 
 
