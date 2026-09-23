@@ -1,10 +1,14 @@
 # Event Compliance Agent
 
-Two Streamlit apps for real catering-operations review work, both built
-around the same principle: deterministic rules handle everything they
-can, and an LLM (Gemini, free tier) is only ever asked to weigh in where
-rule-based logic genuinely can't resolve ambiguity — never as the first
-or only line of defense on a safety-relevant finding.
+A Streamlit app for real catering-operations review work (`app.py`, the
+Contract Version Tracker), plus an earlier, broader compliance agent kept
+in the repo as a separate, parked app (`app_compliance_agent_full.py`) —
+not actively developed alongside it, but still fully working if you want
+to run it. Both are built around the same principle: deterministic rules
+handle everything they can, and an LLM (Gemini, free tier) is only ever
+asked to weigh in where rule-based logic genuinely can't resolve
+ambiguity — never as the first or only line of defense on a
+safety-relevant finding.
 
 **Full design rationale, architecture diagram, feature-by-feature detail,
 and known limitations:** see [docs/DESIGN.md](docs/DESIGN.md). This
