@@ -980,14 +980,24 @@ def _render_event_allergen_box(source_filename: str, data: dict):
             if ingredients:
                 st.caption("Inferred ingredients: " + ", ".join(ingredients))
 
-            if client is not None:
-                # Always starts empty -- this is purely for typing NEW
-                # allergens to add, kept visually and functionally
-                # separate from "Already known for this dish" above (which
-                # is read-only display, not an editable field). Saving
-                # merges onto whatever's already stored; it never replaces
-                # the list, so there's no way to accidentally wipe out
-                # prior entries by submitting an incomplete retype.
+            if client is not None and not noted:
+                # Only shown while this dish is still UNRESOLVED -- no
+                # note on file for it at all yet, from this scan or any
+                # earlier one. The instant a dish has ANY saved note
+                # (whether that's real allergens confirmed via the
+                # checkboxes above, or an explicit "no allergens"), this
+                # whole input+button disappears for it, on this scan and
+                # every future one: "Already known for this dish" above
+                # is the permanent record from then on, and there's
+                # nothing left to manually add. Before this check, the
+                # input kept showing even for a dish that was fully
+                # resolved -- unused empty space at best, and a chance to
+                # accidentally re-type something already on file at
+                # worst. Always starts empty -- purely for typing NEW
+                # allergens to add while still unresolved. Saving merges
+                # onto whatever's already stored; it never replaces the
+                # list, so there's no way to accidentally wipe out prior
+                # entries by submitting an incomplete retype.
                 note_key = f"allergen_note_input_{event_id}_{item_idx}_{name}"
                 note_input = st.text_input(
                     "Add a NEW allergen you know about this dish (comma-separated, "
