@@ -902,7 +902,7 @@ def _render_event_allergen_box(source_filename: str, data: dict):
         # it. That was the "some are saving some are not" bug -- this is
         # the fully robust version: render everything, THEN act once.
         pending_saves = []
-        for item in menu_items:
+        for item_idx, item in enumerate(menu_items):
             name = item.get("name", "Scanned dish")
             ingredients = item.get("ingredients", [])
             results = allergen_scan.scan_text_ingredients(ingredients)
@@ -940,7 +940,7 @@ def _render_event_allergen_box(source_filename: str, data: dict):
                     # an inferred ingredient list that repeats "sesame
                     # seeds") -- without it, two structurally identical
                     # matches produce the same key and Streamlit errors.
-                    key = f"allergen_confirm_{event_id}_{name}_{category}_{idx}_{m['source_ingredient']}"
+                    key = f"allergen_confirm_{event_id}_{item_idx}_{name}_{category}_{idx}_{m['source_ingredient']}"
                     checked = st.checkbox(
                         f"{icon} **{label}** — '{m['source_ingredient']}' ({detail})",
                         key=key,
@@ -964,13 +964,13 @@ def _render_event_allergen_box(source_filename: str, data: dict):
                 # merges onto whatever's already stored; it never replaces
                 # the list, so there's no way to accidentally wipe out
                 # prior entries by submitting an incomplete retype.
-                note_key = f"allergen_note_input_{event_id}_{name}"
+                note_key = f"allergen_note_input_{event_id}_{item_idx}_{name}"
                 note_input = st.text_input(
                     "Add a NEW allergen you know about this dish (comma-separated, "
                     "added to what's already known above)",
                     value="", key=note_key,
                 )
-                if st.button("Save note", key=f"allergen_note_save_{event_id}_{name}"):
+                if st.button("Save note", key=f"allergen_note_save_{event_id}_{item_idx}_{name}"):
                     new_allergens = [a.strip() for a in note_input.split(",")
                                      if a.strip() and a.strip().lower() not in noted_lower]
                     if new_allergens:
