@@ -950,24 +950,29 @@ def _render_event_allergen_box(source_filename: str, data: dict):
             newly_confirmed = []
             for category, matches in pending_results.items():
                 label = category.replace("_", " ").upper()
-                for idx, m in enumerate(matches):
-                    icon = "🔴" if m["match_type"] == "hidden" else "🟡"
-                    detail = (f"via '{m['matched_term']}' (hidden)" if m["match_type"] == "hidden"
-                              else "direct mention")
-                    # idx breaks ties when the same ingredient/category
-                    # combination appears more than once for a dish (e.g.
-                    # an inferred ingredient list that repeats "sesame
-                    # seeds") -- without it, two structurally identical
-                    # matches produce the same key and Streamlit errors.
-                    key = f"allergen_confirm_{event_id}_{item_idx}_{name}_{category}_{idx}_{m['source_ingredient']}"
-                    checked = st.checkbox(
-                        f"{icon} **{label}** — '{m['source_ingredient']}' ({detail})",
-                        key=key,
-                    )
-                    # Defense in depth: even if pending_results somehow let
-                    # an already-noted category through, never re-add it.
-                    if checked and category.lower() not in noted_lower and category not in newly_confirmed:
-                        newly_confirmed.append(category)
+                # ONE checkbox per (dish, category), not one per matching
+                # ingredient -- the same allergen showing up as 3 separate
+                # rows because 3 different ingredients in the dish all
+                # contain milk was noise, not information: confirming
+                # "MILK" for a dish is a single fact regardless of how
+                # many ingredients contributed to it, which is also
+                # exactly what gets saved (save_dish_allergen_note stores
+                # one category per dish, never one per ingredient) -- this
+                # now matches the UI to the data model it's actually
+                # writing to, instead of showing more granularity than
+                # the save step ever used.
+                icon = "🔴" if any(m["match_type"] == "hidden" for m in matches) else "🟡"
+                seen_ingredients = []
+                for m in matches:
+                    if m["source_ingredient"] not in seen_ingredients:
+                        seen_ingredients.append(m["source_ingredient"])
+                key = f"allergen_confirm_{event_id}_{item_idx}_{name}_{category}"
+                checked = st.checkbox(
+                    f"{icon} **{label}** — ({', '.join(seen_ingredients)})",
+                    key=key,
+                )
+                if checked and category.lower() not in noted_lower:
+                    newly_confirmed.append(category)
 
             if newly_confirmed:
                 pending_saves.append({"name": name, "base": noted, "values": newly_confirmed})
