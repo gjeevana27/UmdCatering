@@ -1,5 +1,5 @@
 {
-  "_note": "Hand-labeled scenarios for llm_client.judge_contract_change() -- the ambiguous-change judgment layer contract_agent.py falls back to when a rule can't decide (a reworded event_type, a menu description edit). Every case here is deliberately chosen to have a CLEAR, defensible expected category (escalate vs review) -- not a genuinely 50/50 borderline call -- so a mismatch is a meaningful signal about the model's judgment, not just noise from picking an unfair test case. See evaluate_llm_judgment.py: this is a LIVE eval, makes real billed API calls, and is never auto-run by anything else.",
+  "_note": "Hand-labeled scenarios for llm_client.judge_contract_change() -- the ambiguous-change judgment layer contract_agent.py falls back to when a rule can't decide (a reworded event_type, a menu description edit). Every case here is deliberately chosen to have a CLEAR, defensible expected category (escalate vs review) -- not a genuinely 50/50 borderline call -- so a mismatch is a meaningful signal about the model's judgment, not just noise from picking an unfair test case. Scaled from an original 8 cases to this larger set to cover more of the real variety this field actually sees in practice (service-style changes, alcohol/equipment additions, allergen-adding vs. allergen-neutral ingredient swaps, pure wording/formatting edits) rather than only the most obvious example of each rule. See evaluate_llm_judgment.py: this is a LIVE eval, makes real billed API calls, and is never auto-run by anything else.",
 
   "cases": [
     {
@@ -77,6 +77,272 @@
       "context": "event contract field change",
       "expected_decision": "review",
       "why": "adds a confirmation note, no operational detail changed"
+    },
+    {
+      "id": "event_type_continental_to_plated_breakfast",
+      "field_label": "event type",
+      "old_value": "Continental Breakfast",
+      "new_value": "Plated Breakfast Service",
+      "context": "event contract field change",
+      "expected_decision": "escalate",
+      "why": "self-serve continental to a plated, served breakfast is a real staffing and service-style change, not just a menu difference"
+    },
+    {
+      "id": "event_type_standing_to_seated",
+      "field_label": "event type",
+      "old_value": "Standing Reception",
+      "new_value": "Seated Dinner",
+      "context": "event contract field change",
+      "expected_decision": "escalate",
+      "why": "standing reception to seated dinner changes room layout, table/chair needs, and plating -- a real logistics shift"
+    },
+    {
+      "id": "event_type_alcohol_added",
+      "field_label": "event type",
+      "old_value": "No Alcohol",
+      "new_value": "Beer & Wine Service",
+      "context": "event contract field change",
+      "expected_decision": "escalate",
+      "why": "alcohol service being added has real legal/staffing/liability implications a caterer must plan for"
+    },
+    {
+      "id": "event_type_indoor_to_outdoor_tent",
+      "field_label": "event type",
+      "old_value": "Indoor Event",
+      "new_value": "Outdoor Event - Tent Required",
+      "context": "event contract field change",
+      "expected_decision": "escalate",
+      "why": "moving outdoors with a tent requirement changes equipment, setup time, and weather-contingency planning"
+    },
+    {
+      "id": "event_type_delivery_to_onsite_chef",
+      "field_label": "event type",
+      "old_value": "Delivery Only",
+      "new_value": "Delivery with On-Site Chef",
+      "context": "event contract field change",
+      "expected_decision": "escalate",
+      "why": "adding an on-site chef is a staffing commitment that wasn't there before, regardless of the menu itself"
+    },
+    {
+      "id": "event_type_buffet_to_boxed",
+      "field_label": "event type",
+      "old_value": "Buffet Lunch",
+      "new_value": "Boxed Lunches - Grab and Go",
+      "context": "event contract field change",
+      "expected_decision": "escalate",
+      "why": "buffet service to individually packaged boxed lunches is a different prep, packaging, and staffing format entirely"
+    },
+    {
+      "id": "event_type_luncheon_synonym",
+      "field_label": "event type",
+      "old_value": "Employee Appreciation Lunch",
+      "new_value": "Employee Appreciation Luncheon",
+      "context": "event contract field change",
+      "expected_decision": "review",
+      "why": "\"lunch\" vs \"luncheon\" is a naming synonym for the same event, no operational detail changed"
+    },
+    {
+      "id": "event_type_retirement_synonym",
+      "field_label": "event type",
+      "old_value": "Retirement Party",
+      "new_value": "Retirement Celebration",
+      "context": "event contract field change",
+      "expected_decision": "review",
+      "why": "same event, different word choice -- \"party\" and \"celebration\" carry no different operational meaning here"
+    },
+    {
+      "id": "event_type_abbreviation_expanded",
+      "field_label": "event type",
+      "old_value": "Dept Meeting - Working Lunch",
+      "new_value": "Department Meeting - Working Lunch",
+      "context": "event contract field change",
+      "expected_decision": "review",
+      "why": "an abbreviation spelled out in full, same event and same meaning"
+    },
+    {
+      "id": "event_type_pickup_confirmed",
+      "field_label": "event type",
+      "old_value": "Pick Up Only",
+      "new_value": "Pick Up Only - Confirmed",
+      "context": "event contract field change",
+      "expected_decision": "review",
+      "why": "a confirmation note appended, no change to what's actually being done"
+    },
+    {
+      "id": "event_type_dropoff_adds_equipment",
+      "field_label": "event type",
+      "old_value": "Simple Drop Off",
+      "new_value": "Drop Off with Chafing Dishes and Sternos",
+      "context": "event contract field change",
+      "expected_decision": "escalate",
+      "why": "adding equipment (chafing dishes, sternos) to a drop-off is a real logistics addition even without added staffing -- more items to pack, deliver, and set up"
+    },
+    {
+      "id": "event_type_plated_to_family_style",
+      "field_label": "event type",
+      "old_value": "Wedding Reception - Plated",
+      "new_value": "Wedding Reception - Family Style",
+      "context": "event contract field change",
+      "expected_decision": "escalate",
+      "why": "plated vs. family-style service changes staffing needs, plating/serving equipment, and pacing, even if the menu itself is unchanged"
+    },
+    {
+      "id": "event_type_meeting_av_note",
+      "field_label": "event type",
+      "old_value": "Corporate Meeting",
+      "new_value": "Corporate Meeting - AV Needed",
+      "context": "event contract field change",
+      "expected_decision": "review",
+      "why": "an AV equipment note doesn't change anything about the catering operation itself -- not the caterer's responsibility to act on"
+    },
+    {
+      "id": "description_pasta_adds_shrimp",
+      "field_label": "description",
+      "old_value": "Penne pasta with seasonal vegetables",
+      "new_value": "Penne pasta with seasonal vegetables and shrimp",
+      "context": "menu item description change",
+      "item_label": "Pasta Primavera",
+      "expected_decision": "escalate",
+      "why": "adds shellfish, a major allergen, to a dish that didn't have it before"
+    },
+    {
+      "id": "description_tortilla_swap_removes_wheat",
+      "field_label": "description",
+      "old_value": "Grilled vegetables in a flour tortilla",
+      "new_value": "Grilled vegetables in a corn tortilla",
+      "context": "menu item description change",
+      "item_label": "Veggie Wrap",
+      "expected_decision": "escalate",
+      "why": "a real ingredient substitution that removes a wheat/gluten source -- significant for a gluten-sensitive guest and a genuine recipe change either way, not wording"
+    },
+    {
+      "id": "description_sauce_swap_changes_allergen_profile",
+      "field_label": "description",
+      "old_value": "Rice noodles with peanut sauce",
+      "new_value": "Rice noodles with soy-ginger sauce",
+      "context": "menu item description change",
+      "item_label": "Thai Peanut Noodles",
+      "expected_decision": "escalate",
+      "why": "the entire sauce is swapped -- peanut allergen removed, soy allergen added -- a real recipe and allergen-profile change, not a rewording of the same dish"
+    },
+    {
+      "id": "description_salad_adds_feta",
+      "field_label": "description",
+      "old_value": "Mixed greens, cherry tomatoes, cucumber",
+      "new_value": "Mixed greens, cherry tomatoes, cucumber, feta cheese",
+      "context": "menu item description change",
+      "item_label": "Garden Salad",
+      "expected_decision": "escalate",
+      "why": "adds a dairy ingredient that wasn't listed before"
+    },
+    {
+      "id": "description_tart_adds_almond_cream",
+      "field_label": "description",
+      "old_value": "Pastry shell with seasonal fruit",
+      "new_value": "Pastry shell with seasonal fruit and almond cream filling",
+      "context": "menu item description change",
+      "item_label": "Fruit Tart",
+      "expected_decision": "escalate",
+      "why": "adds a tree-nut ingredient (almond) to the filling"
+    },
+    {
+      "id": "description_adds_explicit_soy_disclosure",
+      "field_label": "description",
+      "old_value": "Grilled chicken with BBQ sauce",
+      "new_value": "Grilled chicken with house BBQ sauce (contains soy)",
+      "context": "menu item description change",
+      "item_label": "BBQ Chicken",
+      "expected_decision": "escalate",
+      "why": "an explicit new allergen disclosure appearing is exactly the kind of change that needs to reach a human, whether or not the recipe itself physically changed"
+    },
+    {
+      "id": "description_adds_cross_contact_warning",
+      "field_label": "description",
+      "old_value": "Sweet cornbread",
+      "new_value": "Sweet cornbread, baked in a shared facility with tree nuts",
+      "context": "menu item description change",
+      "item_label": "Cornbread",
+      "expected_decision": "escalate",
+      "why": "a cross-contact allergen warning is operationally critical for a severe allergy, even though the recipe's own ingredients didn't change"
+    },
+    {
+      "id": "description_wrap_rewording",
+      "field_label": "description",
+      "old_value": "Grilled chicken, romaine, caesar dressing in a wrap",
+      "new_value": "Grilled chicken, crisp romaine lettuce, caesar dressing, wrapped",
+      "context": "menu item description change",
+      "item_label": "Chicken Caesar Wrap",
+      "expected_decision": "review",
+      "why": "same ingredients, just reworded and reordered -- nothing actually changed about the dish"
+    },
+    {
+      "id": "description_hyphenation_only",
+      "field_label": "description",
+      "old_value": "Fresh cut seasonal fruit",
+      "new_value": "Fresh-cut seasonal fruit",
+      "context": "menu item description change",
+      "item_label": "Fruit Cup",
+      "expected_decision": "review",
+      "why": "purely a hyphenation difference, identical meaning"
+    },
+    {
+      "id": "description_word_order_only",
+      "field_label": "description",
+      "old_value": "Served with ranch dressing on the side",
+      "new_value": "Ranch dressing served on the side",
+      "context": "menu item description change",
+      "item_label": "Garden Salad",
+      "expected_decision": "review",
+      "why": "word order changed, same information, same dish"
+    },
+    {
+      "id": "description_punctuation_only",
+      "field_label": "description",
+      "old_value": "Mini beef sliders with cheddar",
+      "new_value": "Mini beef sliders, cheddar cheese",
+      "context": "menu item description change",
+      "item_label": "Beef Sliders",
+      "expected_decision": "review",
+      "why": "punctuation/formatting difference only, same two ingredients"
+    },
+    {
+      "id": "description_naming_tweak_only",
+      "field_label": "description",
+      "old_value": "Steamed seasonal vegetables",
+      "new_value": "Steamed seasonal vegetable medley",
+      "context": "menu item description change",
+      "item_label": "Vegetable Medley",
+      "expected_decision": "review",
+      "why": "a naming tweak with no ingredient or preparation change"
+    },
+    {
+      "id": "description_symbol_vs_word",
+      "field_label": "description",
+      "old_value": "Sweet and unsweet tea available",
+      "new_value": "Sweet & unsweet tea available",
+      "context": "menu item description change",
+      "item_label": "Iced Tea Station",
+      "expected_decision": "review",
+      "why": "\"and\" vs \"&\" is purely typographic, no content change"
+    },
+    {
+      "id": "description_trailing_whitespace",
+      "field_label": "description",
+      "old_value": "Assorted mini desserts",
+      "new_value": "Assorted mini desserts ",
+      "context": "menu item description change",
+      "item_label": "Dessert Bar",
+      "expected_decision": "review",
+      "why": "trailing whitespace only -- no real content difference at all. (In production, contract_store.diff_records() whitespace-normalizes text before this would ever reach the LLM, so this specific case wouldn't actually fire in the real pipeline -- included here anyway to test the model's judgment on a truly empty diff in isolation, since judge_contract_change() is being called directly, bypassing that upstream filter.)"
+    },
+    {
+      "id": "event_type_trailing_whitespace",
+      "field_label": "event type",
+      "old_value": "Graduation Reception",
+      "new_value": "Graduation Reception ",
+      "context": "event contract field change",
+      "expected_decision": "review",
+      "why": "same as the description case above -- trailing whitespace only, no real change, tested directly against the LLM in isolation"
     }
   ]
 }

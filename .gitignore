@@ -20,3 +20,13 @@ data/real_examples/contracts/*
 data/real_examples/pull_sheets/*
 !data/real_examples/contracts/.gitkeep
 !data/real_examples/pull_sheets/.gitkeep
+
+# Ground-truth JSON for evaluate_extraction.py is typed by hand from those
+# same real photos (event_id, location, guest counts, etc.) -- same PII
+# concern, stays local too. The directory itself must be un-ignored before
+# its own contents can be re-ignored (negating a path inside an already-
+# excluded parent doesn't work), so this needs all three lines below, not
+# just a `!...ground_truth/.gitkeep`.
+!data/real_examples/contracts/ground_truth/
+data/real_examples/contracts/ground_truth/*
+!data/real_examples/contracts/ground_truth/.gitkeep

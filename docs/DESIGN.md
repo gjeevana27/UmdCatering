@@ -383,20 +383,42 @@ common call points), not specific to either one:
   counter — persisting it to Firestore would mean a database round-trip
   on every single Gemini call just to track a number that already has an
   authoritative backstop elsewhere.
-- **Small eval sets, and real coverage gaps remain.** 3 of the 4 sample
-  events (`agent.py`'s eval), 8 synthetic scenarios
-  (`contract_agent.py`'s eval, `evaluate_contract_agent.py`), and 8
-  scenarios against the live model (`llm_client.py`'s eval,
-  `evaluate_llm_judgment.py`) are all hand-labeled by one reviewer, and
-  all three are still narrow: `agent.py`'s own ambiguous-finding
-  judgment call (`judge_ambiguous_finding()`, as opposed to
-  `contract_agent.py`'s `judge_contract_change()`, which the live eval
-  does cover) has no automated eval at all, and neither does extraction
-  accuracy itself, `contract_diff.py`, `pull_sheet_check.py`, or the
-  standalone allergen scanners. A production version needs a larger,
-  multi-reviewer-labeled set drawn from real (anonymized) past events,
-  and eval coverage extended to `judge_ambiguous_finding()` the same way
-  `judge_contract_change()` now has it.
+- **Eval sets are hand-labeled by one reviewer, and one of the four is
+  still small.** `evaluate.py`'s sample-event set (`agent.py`'s eval) is
+  still just 3 events — scaling it needs more real (anonymized) or
+  carefully-constructed synthetic contract/production-sheet pairs, not
+  yet done. `evaluate_contract_agent.py` (60 cases) and
+  `evaluate_llm_judgment.py` (36 cases, live) were both deliberately
+  scaled up from an original 8 to include boundary and adversarial
+  cases specifically — an exact-15%-threshold guest count, a
+  non-numeric OCR-garbled number, cosmetic-only quantity reformatting,
+  a same-place location written two different ways — rather than only
+  the obvious example of each rule, since a perfect score on a handful
+  of easy cases doesn't mean much. That scaling is what surfaced a real,
+  disclosed disagreement in the live eval (35/36, not 1.00 — see
+  README's Evaluation section for the specific case); it's left in and
+  reported honestly rather than dropped or relabeled to make the number
+  cleaner.
+- **`evaluate_extraction.py` closes the biggest remaining gap** —
+  `agent.py`'s own ambiguous-finding judgment call
+  (`judge_ambiguous_finding()`, as opposed to `contract_agent.py`'s
+  `judge_contract_change()`, which the live eval covers), `contract_diff.py`,
+  `pull_sheet_check.py`, and the standalone allergen scanners still have
+  no automated eval, but until now neither did extraction accuracy
+  itself — the vision-to-JSON step every other layer's eval silently
+  assumes is already correct. The harness is built and scores
+  field-level accuracy (weighted toward the fields that actually drive
+  `contract_agent.py`'s decisions) plus whether the model's own
+  self-reported `_confidence` actually tracks its error rate, but it has
+  nothing to score yet: it needs real, hand-labeled contract photos,
+  which can't ship in this repo (real client PII) and don't exist in
+  this environment either. See `data/real_examples/README.md` and
+  `evaluation/label_extraction_example.py` for how to build examples as
+  real photos come in from actual use. A production version needs a
+  larger, multi-reviewer-labeled set across every harness, drawn from
+  real (anonymized) past events, and eval coverage extended to
+  `judge_ambiguous_finding()` the same way `judge_contract_change()`
+  now has it.
 - **This is a decision-support tool.** It never approves a menu or clears
   an allergen conflict on its own authority. Every escalation and every
   "needs review" item is a recommendation for a human to act on, not an

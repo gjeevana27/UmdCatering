@@ -135,9 +135,9 @@ optional live recall check → `agent.py::decide()`):
 
 ## Evaluation
 
-Three separate harnesses, one per decision layer — deliberately kept
+Four separate harnesses, one per pipeline stage — deliberately kept
 separate rather than one blended score, since they test different things
-and one of them costs money to run. The two deterministic harnesses run
+and two of them cost money to run. The two deterministic harnesses run
 automatically on every push via [GitHub Actions](.github/workflows/evals.yml).
 
 | Harness | Tests | Cases | Metric | Score |
@@ -145,15 +145,17 @@ automatically on every push via [GitHub Actions](.github/workflows/evals.yml).
 | `evaluation/evaluate.py` | `agent.py` (legacy pipeline) | 3 real sample events | Escalation precision | **1.00** |
 | | | | Escalation recall | **1.00** |
 | | | | Allergen-conflict recall (safety-critical subset) | **1.00** |
-| `evaluation/evaluate_contract_agent.py` | `contract_agent.py` decision rules | 8 synthetic scenarios | Decision accuracy | **1.00 (8/8)** |
-| `evaluation/evaluate_llm_judgment.py` | `llm_client.judge_contract_change()` — **live**, real API calls | 8 scenarios | Decision-category accuracy | **1.00 (8/8)** |
+| `evaluation/evaluate_contract_agent.py` | `contract_agent.py` decision rules | 60 synthetic scenarios, incl. boundary/adversarial cases | Decision accuracy | **1.00 (60/60)** |
+| `evaluation/evaluate_llm_judgment.py` | `llm_client.judge_contract_change()` — **live**, real API calls | 36 scenarios | Decision-category accuracy | **0.97 (35/36)** |
+| `evaluation/evaluate_extraction.py` | `extract.extract_contract_record()` vs. real photos — **live** | 0 so far (harness ready, needs real examples — see below) | Field-level accuracy + confidence calibration | *n/a yet* |
 
 ```bash
 python evaluation/evaluate.py
 python evaluation/evaluate_contract_agent.py     # no API key needed, deterministic
 
 export GEMINI_API_KEY=...
-python evaluation/evaluate_llm_judgment.py       # live, opt-in, ~$0.001/run
+python evaluation/evaluate_llm_judgment.py       # live, opt-in, ~$0.01/run
+python evaluation/evaluate_extraction.py         # live, opt-in, needs ground truth below
 ```
 
 Allergen-conflict recall is scored separately from overall recall on
@@ -161,9 +163,38 @@ purpose — a missed allergen escalation and a missed menu-count mismatch
 are different failure classes; averaging them would hide a safety-critical
 miss behind a decent blended number.
 
+The 60-case `contract_agent.py` set and the 36-case live LLM set were
+both scaled up specifically to include boundary and adversarial cases
+(an exact-threshold guest count, an OCR-garbled number, cosmetic-only
+menu reformatting) rather than only the obvious example of each rule —
+the deterministic set still lands at 1.00 (it's genuinely deterministic
+code, so that's expected), but the live LLM eval landed at **35/36
+(0.97)**, not a padded 1.00: the model escalated a "Corporate Meeting" →
+"Corporate Meeting - AV Needed" change that was labeled `review`
+(reasoning: AV setup isn't the caterer's own operational concern). Left
+in and reported as-is rather than dropped or relabeled after the fact —
+a real, disclosed disagreement is worth more than a clean-looking score.
+
+**Extraction accuracy** (`evaluate_extraction.py`) is new: it scores
+`extract.extract_contract_record()` field-by-field against real,
+hand-labeled contract photos — the one step every other harness assumes
+is already correct. It has nothing to score yet because building ground
+truth needs real documents this repo doesn't ship with (gitignored, real
+client PII). To add an example:
+```bash
+export GEMINI_API_KEY=...
+python evaluation/label_extraction_example.py data/real_examples/contracts/some_photo.jpg
+```
+which drops a draft ground-truth JSON pre-filled with the model's own
+guess — open it next to the photo, correct every field, set
+`"_verified": true`. See
+[data/real_examples/README.md](data/real_examples/README.md).
+
 **Not yet covered by an automated eval:** `agent.py`'s own
-`judge_ambiguous_finding()`, extraction accuracy itself, `contract_diff.py`,
-`pull_sheet_check.py`, the standalone allergen scanners. See
+`judge_ambiguous_finding()`, `contract_diff.py`, `pull_sheet_check.py`,
+the standalone allergen scanners, and `evaluate.py`'s own sample-event
+set (still 3 events — scaling it needs more real or carefully-constructed
+synthetic contract/production-sheet pairs, not yet done). See
 [docs/DESIGN.md#limitations](docs/DESIGN.md#limitations).
 
 ## Project Structure
@@ -190,10 +221,14 @@ event-compliance-agent/
 │   ├── rate_guard.py            shared daily Gemini call-count circuit breaker
 │   └── agent.py                 legacy decision layer + audit trail + report
 ├── data/sample_events/          4 sample events (contract-change demo)
+├── data/real_examples/          gitignored -- real photos + hand-labeled ground truth (local only)
+│   └── contracts/ground_truth/  ground truth for evaluate_extraction.py
 ├── evaluation/
 │   ├── labeled_cases.json / evaluate.py                         agent.py eval
 │   ├── labeled_contract_changes.json / evaluate_contract_agent.py  contract_agent.py eval
-│   └── labeled_llm_judgments.json / evaluate_llm_judgment.py    llm_client.py eval (live)
+│   ├── labeled_llm_judgments.json / evaluate_llm_judgment.py    llm_client.py eval (live)
+│   ├── evaluate_extraction.py                                   extract.py eval (live, needs ground truth)
+│   └── label_extraction_example.py                              helper: drafts ground truth from a real photo
 ├── demo/                        self-contained interactive walkthrough (static HTML)
 ├── docs/DESIGN.md               full rationale, architecture, design decisions, limitations
 └── requirements.txt

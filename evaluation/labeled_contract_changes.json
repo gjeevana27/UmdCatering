@@ -1,5 +1,5 @@
 {
-  "_note": "Hand-labeled synthetic FieldChange/MenuChange scenarios for contract_agent.py's decision layer (Good-to-Go's escalate/review classifier). Deliberately scoped to RULE-decided cases only -- no GEMINI_API_KEY needed, fully deterministic, no network dependency, same testing philosophy as labeled_cases.json for agent.py's own eval. Genuinely ambiguous free-text changes (an event_type reword, a menu description edit) go through llm_client.judge_contract_change() instead of a rule and aren't covered here -- see docs/DESIGN.md's Limitations section for why LLM-judged paths are validated by manual review rather than an automated eval.",
+  "_note": "Hand-labeled synthetic FieldChange/MenuChange scenarios for contract_agent.py's decision layer (Good-to-Go's escalate/review classifier). Deliberately scoped to RULE-decided cases only -- no GEMINI_API_KEY needed, fully deterministic, no network dependency, same testing philosophy as labeled_cases.json for agent.py's own eval. Genuinely ambiguous free-text changes (an event_type reword, a menu description edit) go through llm_client.judge_contract_change() instead of a rule and aren't covered here -- see evaluation/labeled_llm_judgments.json / evaluate_llm_judgment.py for that path, and docs/DESIGN.md's Limitations section for why LLM-judged paths are validated separately. Scaled from an original 8 cases to this larger set specifically to include adversarial/boundary cases (exact threshold values, OCR-style garbled numbers, cosmetic-only reformatting) rather than only the 'obvious' scenario per rule -- every expected_decision here was checked against contract_agent.py's actual threshold math (SIGNIFICANT_QUANTITY_CHANGE = 0.15, strict '>') before being written, not guessed.",
   "cases": [
     {
       "id": "location_change",
@@ -20,6 +20,150 @@
       "why": "event_time is an always-escalate field, same reasoning as location"
     },
     {
+      "id": "loc_minor_room_number",
+      "type": "field",
+      "field": "location",
+      "old_value": "Grand Ballroom A",
+      "new_value": "Grand Ballroom B",
+      "expected_decision": "escalate",
+      "why": "a one-character room-letter change is still a location change -- always-escalate fields don't have a magnitude threshold"
+    },
+    {
+      "id": "loc_single_char_typo_lookalike",
+      "type": "field",
+      "field": "location",
+      "old_value": "Stamp Student Union",
+      "new_value": "Stamp Student Onion",
+      "expected_decision": "escalate",
+      "why": "adversarial: a single-letter diff that LOOKS like an OCR typo rather than a real edit -- the rule deliberately never tries to distinguish a typo from a real change for this field, by design, so it still escalates"
+    },
+    {
+      "id": "loc_full_address_change",
+      "type": "field",
+      "field": "location",
+      "old_value": "123 Campus Dr",
+      "new_value": "456 Main St",
+      "expected_decision": "escalate",
+      "why": "a full address swap, same rule as the smaller diffs above"
+    },
+    {
+      "id": "loc_building_renamed_same_place",
+      "type": "field",
+      "field": "location",
+      "old_value": "STAMP",
+      "new_value": "Adele H. Stamp Student Union",
+      "expected_decision": "escalate",
+      "why": "adversarial: this almost certainly refers to the SAME physical place, just written out in full -- the rule doesn't attempt that semantic read and escalates anyway, a deliberate false-positive-by-design tradeoff for a field this operationally important"
+    },
+    {
+      "id": "event_time_ampm_flip",
+      "type": "field",
+      "field": "event_time",
+      "old_value": "9:00 AM",
+      "new_value": "9:00 PM",
+      "expected_decision": "escalate",
+      "why": "a single AM/PM token flip is a huge real-world change (12-hour shift) hiding behind a tiny text diff -- confirms the always-escalate rule catches this regardless of how small the string edit looks"
+    },
+    {
+      "id": "event_time_one_minute_shift",
+      "type": "field",
+      "field": "event_time",
+      "old_value": "12:45 PM - 1:45 PM",
+      "new_value": "12:46 PM - 1:46 PM",
+      "expected_decision": "escalate",
+      "why": "adversarial: the opposite direction from the AM/PM case -- a genuinely trivial one-minute shift still escalates, since this field has no magnitude threshold at all"
+    },
+    {
+      "id": "event_time_same_meaning_annotated",
+      "type": "field",
+      "field": "event_time",
+      "old_value": "12:00 PM",
+      "new_value": "12:00 PM (Noon)",
+      "expected_decision": "escalate",
+      "why": "adversarial: same actual time, just annotated -- the rule doesn't try to judge semantic equivalence for always-escalate fields, so a cosmetic-only edit still escalates"
+    },
+    {
+      "id": "event_time_single_time_to_range",
+      "type": "field",
+      "field": "event_time",
+      "old_value": "6:00 PM",
+      "new_value": "5:30 PM - 6:00 PM",
+      "expected_decision": "escalate",
+      "why": "a single time becoming a range is a real logistics change (earlier setup/delivery window), and would escalate either way"
+    },
+    {
+      "id": "field_blanked_out",
+      "type": "field",
+      "field": "location",
+      "old_value": "Chapel",
+      "new_value": "",
+      "expected_decision": "escalate",
+      "why": "a field with real content going blank is treated as a likely extraction miss, always escalated by rule ahead of every other check"
+    },
+    {
+      "id": "event_time_blanked",
+      "type": "field",
+      "field": "event_time",
+      "old_value": "12:45 PM - 1:45 PM",
+      "new_value": "",
+      "expected_decision": "escalate",
+      "why": "same blank-field-regression rule as location, different field -- confirms it's field-agnostic"
+    },
+    {
+      "id": "guest_count_blanked",
+      "type": "field",
+      "field": "guest_count",
+      "old_value": "80",
+      "new_value": "",
+      "expected_decision": "escalate",
+      "why": "critical priority check: proves the blank-detection rule fires BEFORE the guest_count percent-change branch, not after -- a blank new_value should never reach _pct_change() at all"
+    },
+    {
+      "id": "event_type_blanked_escalates_before_llm",
+      "type": "field",
+      "field": "event_type",
+      "old_value": "Buffet Lunch",
+      "new_value": "",
+      "expected_decision": "escalate",
+      "why": "critical determinism check: event_type normally routes to the LLM judge, which would make this eval non-deterministic -- but the blank-detection rule short-circuits BEFORE that branch is ever reached, so this stays a pure rule decision with no API call"
+    },
+    {
+      "id": "blank_whitespace_only_new_value",
+      "type": "field",
+      "field": "location",
+      "old_value": "Chapel",
+      "new_value": "   ",
+      "expected_decision": "escalate",
+      "why": "adversarial: an all-whitespace string isn't literally empty, but .strip() reduces it to '', so this still counts as a blank-field regression, not a real edit to '   '"
+    },
+    {
+      "id": "blank_not_triggered_when_old_already_blank",
+      "type": "field",
+      "field": "location",
+      "old_value": "   ",
+      "new_value": "",
+      "expected_decision": "escalate",
+      "why": "adversarial edge case: old_value was ALREADY blank-ish, so bool(old_value.strip()) is False and the blank-regression rule correctly does NOT fire (there's no real content-to-blank regression here) -- but the decision still lands on escalate via the ordinary always-escalate-field rule for location, a different code path reaching the same outcome"
+    },
+    {
+      "id": "guest_count_blanked_whitespace",
+      "type": "field",
+      "field": "guest_count",
+      "old_value": "45",
+      "new_value": " ",
+      "expected_decision": "escalate",
+      "why": "same whitespace-counts-as-blank check as above, on guest_count specifically -- proves priority over the guest_count threshold branch, the most important one to prove given it's the field most likely to otherwise resolve to review"
+    },
+    {
+      "id": "guest_count_zero_string_not_blank",
+      "type": "field",
+      "field": "guest_count",
+      "old_value": "80",
+      "new_value": "0",
+      "expected_decision": "escalate",
+      "why": "adversarial: the string \"0\" is non-empty (bool(\"0\") is True), so this correctly does NOT trigger blank-detection -- it instead falls through to the ordinary guest_count percent-change rule, where a drop from 80 to 0 is a 100% decrease, well above threshold, and escalates for that reason instead"
+    },
+    {
       "id": "guest_count_large_increase",
       "type": "field",
       "field": "guest_count",
@@ -38,13 +182,175 @@
       "why": "5% increase, below the significant-change threshold -- still shown, just not urgent"
     },
     {
-      "id": "field_blanked_out",
+      "id": "gc_boundary_exactly_15pct_up",
       "type": "field",
-      "field": "location",
-      "old_value": "Chapel",
-      "new_value": "",
+      "field": "guest_count",
+      "old_value": "100",
+      "new_value": "115",
+      "expected_decision": "review",
+      "why": "adversarial boundary case: exactly 15% (15/100) -- the rule is a STRICT greater-than 0.15, so exactly-at-threshold does NOT escalate"
+    },
+    {
+      "id": "gc_boundary_just_above_15pct",
+      "type": "field",
+      "field": "guest_count",
+      "old_value": "100",
+      "new_value": "116",
       "expected_decision": "escalate",
-      "why": "a field with real content going blank is treated as a likely extraction miss, always escalated by rule ahead of every other check"
+      "why": "one guest past the exact-15% boundary case above (16%) -- confirms the strict-greater-than behavior flips at the very next integer"
+    },
+    {
+      "id": "gc_boundary_just_below_15pct",
+      "type": "field",
+      "field": "guest_count",
+      "old_value": "100",
+      "new_value": "114",
+      "expected_decision": "review",
+      "why": "14%, just under threshold"
+    },
+    {
+      "id": "gc_boundary_15pct_diff_base",
+      "type": "field",
+      "field": "guest_count",
+      "old_value": "200",
+      "new_value": "230",
+      "expected_decision": "review",
+      "why": "exactly 15% (30/200) at a different base count -- confirms the boundary behavior isn't an artifact of the specific numbers used in the other boundary case"
+    },
+    {
+      "id": "gc_boundary_just_above_diff_base",
+      "type": "field",
+      "field": "guest_count",
+      "old_value": "200",
+      "new_value": "231",
+      "expected_decision": "escalate",
+      "why": "15.5% at the same base as the case above -- one guest past the boundary"
+    },
+    {
+      "id": "gc_large_decrease",
+      "type": "field",
+      "field": "guest_count",
+      "old_value": "200",
+      "new_value": "50",
+      "expected_decision": "escalate",
+      "why": "a 75% DECREASE -- confirms the percent-change math uses abs(), so a drop in headcount escalates exactly like a comparable increase, not just growth"
+    },
+    {
+      "id": "gc_small_decrease_under_threshold",
+      "type": "field",
+      "field": "guest_count",
+      "old_value": "100",
+      "new_value": "90",
+      "expected_decision": "review",
+      "why": "10% decrease, under threshold"
+    },
+    {
+      "id": "gc_decrease_at_boundary",
+      "type": "field",
+      "field": "guest_count",
+      "old_value": "100",
+      "new_value": "85",
+      "expected_decision": "review",
+      "why": "exactly 15% decrease -- same strict-boundary behavior as the increase cases, confirmed on the decrease side"
+    },
+    {
+      "id": "gc_decrease_just_above_boundary",
+      "type": "field",
+      "field": "guest_count",
+      "old_value": "100",
+      "new_value": "84",
+      "expected_decision": "escalate",
+      "why": "16% decrease, one guest past the boundary"
+    },
+    {
+      "id": "gc_zero_baseline_new_positive",
+      "type": "field",
+      "field": "guest_count",
+      "old_value": "0",
+      "new_value": "5",
+      "expected_decision": "escalate",
+      "why": "adversarial: old_value of 0 makes a percent-change mathematically undefined (division by zero) -- the code special-cases this to infinity/always-significant rather than crashing or silently treating it as 0% unchanged"
+    },
+    {
+      "id": "gc_nonnumeric_new_ocr_error",
+      "type": "field",
+      "field": "guest_count",
+      "old_value": "120",
+      "new_value": "12O",
+      "expected_decision": "escalate",
+      "why": "adversarial: \"12O\" (letter O, not zero) fails float() parsing, so pct_change returns infinity and this escalates by the same fallback as the zero-baseline case. This exercises the decision layer's OWN defensive fallback for a garbled number -- in production, extract.py's output-validation guardrail would normally catch a non-numeric guest_count at extraction time before it ever reaches this diff, but a legacy or manually-edited stored record could still reach here, so the fallback still matters"
+    },
+    {
+      "id": "gc_nonnumeric_old_vague_text",
+      "type": "field",
+      "field": "guest_count",
+      "old_value": "approx 50",
+      "new_value": "55",
+      "expected_decision": "escalate",
+      "why": "adversarial: non-numeric OLD value (not just new) also fails parsing and falls back to escalate -- confirms the fallback isn't one-sided"
+    },
+    {
+      "id": "gc_both_nonnumeric_placeholder_to_real",
+      "type": "field",
+      "field": "guest_count",
+      "old_value": "TBD",
+      "new_value": "around 40",
+      "expected_decision": "escalate",
+      "why": "adversarial: neither value parses as a number at all -- still resolves to escalate via the same can't-assess-magnitude fallback, which also happens to be the right call here since a placeholder becoming a real estimate is genuinely worth a look"
+    },
+    {
+      "id": "gc_tiny_increase_small_base",
+      "type": "field",
+      "field": "guest_count",
+      "old_value": "50",
+      "new_value": "51",
+      "expected_decision": "review",
+      "why": "a single-guest bump (2%) stays review even at a small base count"
+    },
+    {
+      "id": "gc_tiny_increase_large_base",
+      "type": "field",
+      "field": "guest_count",
+      "old_value": "500",
+      "new_value": "510",
+      "expected_decision": "review",
+      "why": "2% at a much larger base -- confirms it's percent-based, not a fixed guest-count delta"
+    },
+    {
+      "id": "gc_doubling_small_base",
+      "type": "field",
+      "field": "guest_count",
+      "old_value": "2",
+      "new_value": "5",
+      "expected_decision": "escalate",
+      "why": "a 150% increase on a tiny base count -- confirms small absolute numbers can still trip the percent threshold hard"
+    },
+    {
+      "id": "gc_decimal_formatted_at_boundary",
+      "type": "field",
+      "field": "guest_count",
+      "old_value": "60.00",
+      "new_value": "69.00",
+      "expected_decision": "review",
+      "why": "adversarial: decimal-formatted strings (as might come from a spreadsheet export) at exactly the 15% boundary -- confirms float() parses '60.00' correctly rather than choking on the decimal formatting"
+    },
+    {
+      "id": "gc_decimal_formatted_above_boundary",
+      "type": "field",
+      "field": "guest_count",
+      "old_value": "60.00",
+      "new_value": "70.00",
+      "expected_decision": "escalate",
+      "why": "same decimal formatting, one guest past the boundary (16.7%)"
+    },
+    {
+      "id": "gc_whitespace_padded",
+      "type": "field",
+      "field": "guest_count",
+      "old_value": " 80",
+      "new_value": "95 ",
+      "expected_decision": "escalate",
+      "why": "adversarial: leading/trailing whitespace around the numbers -- confirms float() strips it correctly rather than failing to parse and falling back to a different (still-correct-here) escalate path for the wrong reason"
     },
     {
       "id": "menu_item_added",
@@ -63,6 +369,78 @@
       "why": "any menu item removed is escalated unconditionally"
     },
     {
+      "id": "menu_added_special_chars",
+      "type": "menu",
+      "change_type": "added",
+      "recipe_name": "BBQ Pulled Pork Sliders (GF)",
+      "expected_decision": "escalate",
+      "why": "parentheses/special characters in the name don't affect the unconditional add rule"
+    },
+    {
+      "id": "menu_added_single_word",
+      "type": "menu",
+      "change_type": "added",
+      "recipe_name": "Water",
+      "expected_decision": "escalate",
+      "why": "adversarial: even a trivial, low-stakes-looking item still escalates unconditionally -- the rule doesn't try to judge an item's importance by its name"
+    },
+    {
+      "id": "menu_removed_single_word",
+      "type": "menu",
+      "change_type": "removed",
+      "recipe_name": "Napkins",
+      "expected_decision": "escalate",
+      "why": "same as above, on removal -- a supply item disappearing still needs the kitchen to know"
+    },
+    {
+      "id": "menu_added_long_name",
+      "type": "menu",
+      "change_type": "added",
+      "recipe_name": "Build-Your-Own Taco Bar with Carne Asada, Al Pastor, and Vegetarian Options",
+      "expected_decision": "escalate",
+      "why": "an unusually long/complex recipe name doesn't change the unconditional add rule"
+    },
+    {
+      "id": "menu_added_numeric_name",
+      "type": "menu",
+      "change_type": "added",
+      "recipe_name": "3-Tier Wedding Cake",
+      "expected_decision": "escalate",
+      "why": "a name starting with a digit doesn't affect matching or the decision"
+    },
+    {
+      "id": "menu_removed_allergen_labeled_item",
+      "type": "menu",
+      "change_type": "removed",
+      "recipe_name": "Nut-Free Brownie Platter",
+      "expected_decision": "escalate",
+      "why": "an allergen-safe item disappearing is exactly the kind of thing that must never be silently dropped -- covered by the same unconditional rule as any other removal"
+    },
+    {
+      "id": "menu_removed_unicode_name",
+      "type": "menu",
+      "change_type": "removed",
+      "recipe_name": "Crème Brûlée",
+      "expected_decision": "escalate",
+      "why": "adversarial: accented/unicode characters in the recipe name shouldn't break matching or the decision rule"
+    },
+    {
+      "id": "menu_added_blank_name",
+      "type": "menu",
+      "change_type": "added",
+      "recipe_name": "",
+      "expected_decision": "escalate",
+      "why": "adversarial: even a blank/malformed recipe name (a plausible bad-extraction artifact) still escalates -- the ADD fact itself is what matters to this rule, not whether the name is readable"
+    },
+    {
+      "id": "menu_removed_qty_in_name",
+      "type": "menu",
+      "change_type": "removed",
+      "recipe_name": "Sodas (24 count)",
+      "expected_decision": "escalate",
+      "why": "a quantity embedded in the name itself doesn't change the unconditional removal rule"
+    },
+    {
       "id": "menu_qty_changed",
       "type": "menu",
       "change_type": "changed",
@@ -71,6 +449,96 @@
       "new_qty": "40.00-EACH",
       "expected_decision": "escalate",
       "why": "a quantity/unit change on an existing item is a rule-decidable prep-volume fact, always escalated"
+    },
+    {
+      "id": "menu_qty_tiny_increase",
+      "type": "menu",
+      "change_type": "changed",
+      "recipe_name": "Dinner Rolls",
+      "old_qty": "10.00-EACH",
+      "new_qty": "11.00-EACH",
+      "expected_decision": "escalate",
+      "why": "adversarial: unlike guest_count, menu qty/unit changes have NO magnitude threshold at all -- a single-unit bump (10%) still escalates"
+    },
+    {
+      "id": "menu_qty_decrease",
+      "type": "menu",
+      "change_type": "changed",
+      "recipe_name": "Caesar Salad",
+      "old_qty": "50.00-EACH",
+      "new_qty": "40.00-EACH",
+      "expected_decision": "escalate",
+      "why": "a decrease escalates exactly like an increase -- no direction-dependence in this rule"
+    },
+    {
+      "id": "menu_unit_only_change",
+      "type": "menu",
+      "change_type": "changed",
+      "recipe_name": "Pulled Pork",
+      "old_qty": "10.00-EACH",
+      "new_qty": "10.00-LB",
+      "expected_decision": "escalate",
+      "why": "same number, different unit (EACH vs LB is a real prep-volume-relevant change, not cosmetic) -- escalates"
+    },
+    {
+      "id": "menu_qty_fractional",
+      "type": "menu",
+      "change_type": "changed",
+      "recipe_name": "Roast Beef",
+      "old_qty": "12.5-LB",
+      "new_qty": "15.75-LB",
+      "expected_decision": "escalate",
+      "why": "fractional quantity values don't affect the rule -- it doesn't parse magnitude at all for menu items"
+    },
+    {
+      "id": "menu_qty_large_batch",
+      "type": "menu",
+      "change_type": "changed",
+      "recipe_name": "Chicken Skewers",
+      "old_qty": "200.00-EACH",
+      "new_qty": "250.00-EACH",
+      "expected_decision": "escalate",
+      "why": "large-batch quantities still hit the same unconditional rule"
+    },
+    {
+      "id": "menu_qty_format_only_change",
+      "type": "menu",
+      "change_type": "changed",
+      "recipe_name": "Fruit Cups",
+      "old_qty": "33-EACH",
+      "new_qty": "33.00-EACH",
+      "expected_decision": "escalate",
+      "why": "adversarial: '33' and '33.00' are numerically identical -- this is a PURELY cosmetic reformatting, not a real quantity change, but the rule escalates it anyway. Documents a known false-positive-by-design tradeoff: contract_agent.py doesn't parse or compare the qty/unit magnitude for menu items at all, it escalates on the mere fact that the qty/unit STRING differs (see contract_store.diff_records, which is where this would normally be caught by whitespace/format normalization before ever reaching here -- this case tests the decision layer alone, bypassing that upstream step)"
+    },
+    {
+      "id": "menu_qty_unit_case_change",
+      "type": "menu",
+      "change_type": "changed",
+      "recipe_name": "Iced Tea",
+      "old_qty": "5.00-Each",
+      "new_qty": "5.00-EACH",
+      "expected_decision": "escalate",
+      "why": "adversarial: same reasoning as the format-only case above, but for unit capitalization instead of numeric formatting -- still escalates despite being cosmetic"
+    },
+    {
+      "id": "menu_qty_zero_to_positive",
+      "type": "menu",
+      "change_type": "changed",
+      "recipe_name": "Vegan Option",
+      "old_qty": "0.00-EACH",
+      "new_qty": "10.00-EACH",
+      "expected_decision": "escalate",
+      "why": "a zero-quantity item becoming real is a meaningful prep change, and escalates under the same unconditional rule"
+    },
+    {
+      "id": "menu_qty_dropped_to_zero",
+      "type": "menu",
+      "change_type": "changed",
+      "recipe_name": "Shrimp Cocktail",
+      "old_qty": "15.00-EACH",
+      "new_qty": "0.00-EACH",
+      "expected_decision": "escalate",
+      "why": "adversarial: a quantity dropped to zero (the item is effectively gone but still listed) is arguably close to a removal -- escalates either way under the unconditional qty/unit rule"
     }
   ]
 }
