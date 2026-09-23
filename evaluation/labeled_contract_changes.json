@@ -1,5 +1,5 @@
 {
-  "_note": "Hand-labeled synthetic FieldChange/MenuChange scenarios for contract_agent.py's decision layer (Good-to-Go's escalate/review classifier). Deliberately scoped to RULE-decided cases only -- no GEMINI_API_KEY needed, fully deterministic, no network dependency. Genuinely ambiguous free-text changes (an event_type reword, a menu description edit) go through llm_client.judge_contract_change() instead of a rule and aren't covered here -- see evaluation/labeled_llm_judgments.json / evaluate_llm_judgment.py for that path, and docs/DESIGN.md's Limitations section for why LLM-judged paths are validated separately. Scaled from an original 8 cases to this larger set specifically to include adversarial/boundary cases (exact threshold values, OCR-style garbled numbers, cosmetic-only reformatting) rather than only the 'obvious' scenario per rule -- every expected_decision here was checked against contract_agent.py's actual threshold math (SIGNIFICANT_QUANTITY_CHANGE = 0.15, strict '>') before being written, not guessed.",
+  "_note": "Hand-labeled synthetic FieldChange/MenuChange scenarios for contract_agent.py's decision layer (Good-to-Go's escalate/review classifier). Deliberately scoped to RULE-decided cases only -- no GEMINI_API_KEY needed, fully deterministic, no network dependency. Most menu description edits are still genuinely ambiguous free text that goes through llm_client.judge_contract_change() instead of a rule and aren't covered here -- see evaluation/labeled_llm_judgments.json / evaluate_llm_judgment.py for that path -- but a description edit that adds/removes a term matching allergen_reference.py IS rule-decided (see the 'menu_description_*_rule' cases below) and is safe to include here since that check runs and returns BEFORE any LLM availability check, regardless of whether GEMINI_API_KEY happens to be set in the environment running this eval. Scaled from an original 8 cases to this larger set specifically to include adversarial/boundary cases (exact threshold values, OCR-style garbled numbers, cosmetic-only reformatting) rather than only the 'obvious' scenario per rule -- every expected_decision here was checked against contract_agent.py's actual threshold math (SIGNIFICANT_QUANTITY_CHANGE = 0.15, strict '>') before being written, not guessed.",
   "cases": [
     {
       "id": "location_change",
@@ -539,6 +539,36 @@
       "new_qty": "0.00-EACH",
       "expected_decision": "escalate",
       "why": "adversarial: a quantity dropped to zero (the item is effectively gone but still listed) is arguably close to a removal -- escalates either way under the unconditional qty/unit rule"
+    },
+    {
+      "id": "menu_description_adds_tree_nuts_rule",
+      "type": "menu",
+      "change_type": "changed",
+      "recipe_name": "House Salad",
+      "old_description": "House salad with vinaigrette",
+      "new_description": "House salad with candied walnuts and vinaigrette",
+      "expected_decision": "escalate",
+      "why": "a direct match against allergen_reference.py's tree_nuts term 'walnuts' -- decided by the new grounded rule, not the LLM judge, even though this is a description-only change with no qty/unit involved"
+    },
+    {
+      "id": "menu_description_removes_dairy_rule",
+      "type": "menu",
+      "change_type": "changed",
+      "recipe_name": "Cheese Plate",
+      "old_description": "Assorted cheeses and crackers",
+      "new_description": "Assorted crackers",
+      "expected_decision": "escalate",
+      "why": "a direct match against allergen_reference.py's milk term 'cheese' disappearing -- removal, not just addition, still escalates by the same rule"
+    },
+    {
+      "id": "menu_description_swaps_allergens_rule",
+      "type": "menu",
+      "change_type": "changed",
+      "recipe_name": "Grilled Chicken Special",
+      "old_description": "Grilled chicken with walnuts",
+      "new_description": "Grilled chicken with tahini",
+      "expected_decision": "escalate",
+      "why": "adversarial: one allergen category swapped for a different one in the same edit (tree_nuts removed via 'walnuts', sesame added via the hidden-carrier term 'tahini') -- exercises both the added and removed branches of the reasoning text in a single case"
     }
   ]
 }

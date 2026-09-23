@@ -4,10 +4,13 @@ escalate/review classifier -- against hand-labeled synthetic change
 scenarios (labeled_contract_changes.json).
 
 Deliberately scoped to RULE-decided cases only -- no GEMINI_API_KEY
-needed, fully deterministic, no network dependency. Genuinely ambiguous
-free-text changes (an event_type reword, a menu description edit) go
-through llm_client.judge_contract_change() instead of a rule, and aren't
-covered here -- see evaluate_llm_judgment.py for that path.
+needed, fully deterministic, no network dependency. Most menu
+description edits are still genuinely ambiguous free text that goes
+through llm_client.judge_contract_change() instead of a rule (see
+evaluate_llm_judgment.py for that path) -- but a description edit that
+adds or removes a term matching allergen_reference.py IS rule-decided
+(see contract_agent._decide_menu_change()'s allergen-grounding check),
+so that subset of description cases is covered here too.
 
 Run from the project root:
     python evaluation/evaluate_contract_agent.py
@@ -46,12 +49,19 @@ def _build_change(case: dict):
                                  recipe_name=case["recipe_name"],
                                  detail=f"{case['change_type']} item")
 
-    # "changed" -- this eval only covers qty/unit changes (see module
-    # docstring for why description-only changes, which hit the LLM
-    # judge, aren't included).
-    detail = f"qty/unit: '{case['old_qty']}' → '{case['new_qty']}'"
+    # "changed" -- either a qty/unit case (always rule-decided) or a
+    # description case that's rule-decided ONLY because it trips the
+    # allergen-grounding check (see module docstring) -- distinguished by
+    # which fields the case provides.
+    if "old_qty" in case:
+        detail = f"qty/unit: '{case['old_qty']}' → '{case['new_qty']}'"
+        return store.MenuChange(change_type="changed", recipe_name=case["recipe_name"],
+                                 detail=detail)
+
+    old_desc, new_desc = case["old_description"], case["new_description"]
     return store.MenuChange(change_type="changed", recipe_name=case["recipe_name"],
-                             detail=detail)
+                             detail=f"description: '{old_desc}' → '{new_desc}'",
+                             old_description=old_desc, new_description=new_desc)
 
 
 def main():
@@ -91,9 +101,10 @@ def main():
         print(f"Mismatched cases: {mismatches}")
 
     print("\nNote: scoped to rule-decided cases only (no GEMINI_API_KEY "
-          "needed) -- LLM-judged paths (an event_type reword, a menu "
-          "description edit) aren't covered by this automated eval; see "
-          "docs/DESIGN.md's Limitations section.")
+          "needed) -- an event_type reword or a description edit with no "
+          "allergen-term change still goes to llm_client.judge_contract_change() "
+          "instead of a rule and isn't covered here; see docs/DESIGN.md's "
+          "Limitations section.")
 
     return 0 if not mismatches else 1
 

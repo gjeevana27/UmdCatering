@@ -74,6 +74,17 @@ a one-line urgency call.
   concatenated everything into one string let the model hallucinate a
   "change" that referenced a dish's name as if it were part of the field
   that actually changed.
+- **A menu description edit is grounded against `allergen_reference.py`
+  before it ever reaches the LLM.** If scanning the old and new
+  description text finds a different set of allergen categories (a term
+  added, removed, or both), that's decided by rule -- a direct match
+  against the kitchen's own reference data, not a judgment call, and
+  more reliable than trusting Gemini's general reasoning to always catch
+  it. Only a description edit with no detectable allergen-term change
+  still goes to the LLM. Deliberately NOT exposed to Gemini as a
+  callable tool it might choose to use -- a plain check that runs
+  unconditionally on every edit is more reliable than hoping a model
+  reliably decides to call it.
 - The agent also doesn't fully trust its own upstream reading: when
   extraction confidence was low, every "worth a glance" gets promoted to
   "act on this" instead.
@@ -219,7 +230,7 @@ everything below:
   on every single Gemini call just to track a number that already has an
   authoritative backstop elsewhere.
 - **Eval sets are hand-labeled by one reviewer.**
-  `evaluate_contract_agent.py` (60 cases) and `evaluate_llm_judgment.py`
+  `evaluate_contract_agent.py` (63 cases) and `evaluate_llm_judgment.py`
   (36 cases, live) were both deliberately scaled up from an original 8 to
   include boundary and adversarial cases specifically — an
   exact-15%-threshold guest count, a non-numeric OCR-garbled number,

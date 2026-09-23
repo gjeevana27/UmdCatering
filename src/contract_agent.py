@@ -2,8 +2,7 @@
 The agentic layer of the contract tracker. contract_store.diff_records()
 only establishes facts ("guest_count went from 60 to 68"); this module is
 the one place that decides what each fact means and what should happen
-about it. That split matters for the same reason it matters in
-agent.py's compliance agent: it keeps every decision auditable back to
+about it. That split is what keeps every decision auditable back to
 either a rule or a specific model call, instead of one opaque "AI found
 some changes" step.
 
@@ -18,11 +17,10 @@ your behalf that something's too small to see.
 
 Hard rules come first and are never overridden by the model. Genuinely
 ambiguous cases (does a reworded special-instructions line actually change
-anything operationally?) go to Gemini for a one-line judgment call, the
-same pattern as llm_client.judge_ambiguous_finding() in the compliance
-agent. Everything else falls back to a safe default (REVIEW) when no LLM
-is configured, exactly like the compliance agent does -- this tool never
-guesses at a judgment call it can't actually make.
+anything operationally?) go to Gemini for a one-line judgment call.
+Everything else falls back to a safe default (REVIEW) when no LLM is
+configured -- this tool never guesses at a judgment call it can't
+actually make.
 
 The behavior that makes this genuinely agentic rather than just a rules
 engine: the agent doesn't fully trust its own upstream extraction. When
@@ -33,6 +31,7 @@ reading isn't one this system is willing to sit on quietly.
 
 from dataclasses import dataclass
 
+import allergen_reference
 import llm_client
 
 DECISION_ESCALATE = "escalate"
@@ -164,6 +163,32 @@ def _decide_menu_change(change) -> ChangeDecision:
             change, DECISION_ESCALATE,
             "Quantity or unit changed on this item -- escalated by rule "
             "rather than assumed routine.", made_by="rule",
+        )
+
+    # Ground the description judgment against the kitchen's own allergen
+    # reference BEFORE asking the model to reason about it freely -- this
+    # runs on every single description change, unconditionally, unlike an
+    # LLM tool call the model might or might not choose to make. If a
+    # scan of the old vs. new text finds a different set of allergen
+    # categories, that's a direct match against known terms, not a
+    # judgment call, so it's decided by rule with no LLM involved at all.
+    old_categories = {c for c, _, _ in allergen_reference.scan_ingredient(change.old_description)}
+    new_categories = {c for c, _, _ in allergen_reference.scan_ingredient(change.new_description)}
+    added = new_categories - old_categories
+    removed = old_categories - new_categories
+    if added or removed:
+        parts = []
+        if added:
+            parts.append(f"adds {', '.join(sorted(added))}")
+        if removed:
+            parts.append(f"removes {', '.join(sorted(removed))}")
+        return ChangeDecision(
+            change, DECISION_ESCALATE,
+            f"Description change {' and '.join(parts)}, per a direct match "
+            f"against the kitchen's allergen reference -- escalated by "
+            f"rule, not LLM judgment, since this is a literal term match, "
+            f"not a matter of interpretation.",
+            made_by="rule",
         )
 
     if llm_client.is_llm_available():

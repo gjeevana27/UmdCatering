@@ -91,7 +91,8 @@ Google Cloud Firestore · python-dateutil
 | `guest_count` Δ < 15% | Review | shown, not urgent |
 | Menu item added / removed | **Escalate** | unconditional |
 | Menu item qty/unit changed | **Escalate** | unconditional |
-| Menu description reworded | LLM judgment | ambiguous free text |
+| Menu description adds/removes an allergen-reference term | **Escalate** | rule — grounded against `allergen_reference.py`, checked before the LLM ever runs |
+| Menu description reworded, no allergen-term change | LLM judgment | ambiguous free text |
 | `event_type` reworded | LLM judgment | ambiguous free text |
 | Any "review" item, but extraction confidence was low | **Escalate** | agent doesn't fully trust its own upstream reading |
 
@@ -123,7 +124,7 @@ automatically on every push via [GitHub Actions](.github/workflows/evals.yml).
 
 | Harness | Tests | Cases | Metric | Score |
 |---|---|---|---|---|
-| `evaluation/evaluate_contract_agent.py` | `contract_agent.py` decision rules | 60 synthetic scenarios, incl. boundary/adversarial cases | Decision accuracy | **1.00 (60/60)** |
+| `evaluation/evaluate_contract_agent.py` | `contract_agent.py` decision rules | 63 synthetic scenarios, incl. boundary/adversarial cases | Decision accuracy | **1.00 (63/63)** |
 | `evaluation/evaluate_llm_judgment.py` | `llm_client.judge_contract_change()` — **live**, real API calls | 36 scenarios | Decision-category accuracy | **0.97 (35/36)** |
 | `evaluation/evaluate_extraction.py` | `extract.extract_contract_record()` vs. real photos — **live** | 0 so far (harness ready, needs real examples — see below) | Field-level accuracy + confidence calibration | *n/a yet* |
 
@@ -135,7 +136,7 @@ python evaluation/evaluate_llm_judgment.py       # live, opt-in, ~$0.01/run
 python evaluation/evaluate_extraction.py         # live, opt-in, needs ground truth below
 ```
 
-The 60-case `contract_agent.py` set and the 36-case live LLM set were
+The 63-case `contract_agent.py` set and the 36-case live LLM set were
 both scaled up specifically to include boundary and adversarial cases
 (an exact-threshold guest count, an OCR-garbled number, cosmetic-only
 menu reformatting) rather than only the obvious example of each rule —
