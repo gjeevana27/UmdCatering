@@ -275,6 +275,45 @@ instead of guessing, which is the honest default for a food-safety-adjacent
 tool. When a key is configured, Gemini's free tier (no credit card) is
 sized generously enough that normal use of this project costs nothing.
 
+## Guardrails
+
+Shared by both apps (`src/extract.py` and `src/llm_client.py` are the
+common call points), not specific to either one:
+
+- **No local PII accumulation.** Every uploaded photo/PDF is a real
+  customer document. It used to get written to the OS temp directory
+  with `delete=False` (needed so the file survived long enough for
+  Gemini's SDK to read it by path) and never cleaned up afterward —
+  silently growing an unbounded folder of real customer documents on
+  whatever machine runs the app. `_temp_upload_file()` (one copy per
+  app, same pattern) now guarantees deletion in a `finally` block,
+  success or failure, at all 5 upload call sites across both apps.
+  Deleting the file doesn't affect what gets stored: by the time the
+  file is removed, Gemini has already returned a parsed JSON response,
+  which lives on as a plain Python dict independent of the file --
+  everything downstream (building a record, diffing it, writing to
+  Firestore) uses that dict, never the file path again.
+- **A daily call-count circuit breaker** (`src/rate_guard.py`) — an
+  in-process, thread-safe counter shared by every Gemini call site.
+  Checked immediately before each actual API attempt (including
+  retries); once today's count hits the configured limit (300 by
+  default, `GEMINI_DAILY_CALL_LIMIT` to override), further calls fail
+  clearly instead of a bug (an infinite retry loop, a batch triggered
+  twice) silently running up real cost. Deliberately not a replacement
+  for Google Cloud's own billing alerts -- it's a same-process,
+  same-day safety net that resets on app restart, not an authoritative
+  spend tracker.
+- **Output validation on every extraction** (`extract._validate_extracted_dict()`,
+  applied at all 6 extraction entry points) — Gemini's JSON response is
+  parsed but not otherwise guaranteed to satisfy anything about its
+  *content*. A count field is checked as a real non-negative number: a
+  negative value is auto-corrected to 0 with `_confidence` force-downgraded
+  to `low` and a note explaining why, so it still flows into the app's
+  existing human-review path instead of silently feeding a bad number
+  into a percent-change calculation. A field that's supposed to be a
+  list but comes back as some other type raises `ExtractionError`
+  outright, since that's not something safe to guess a fix for.
+
 ## Design decisions
 
 - **Deterministic checks first, LLM last.** The model is never the first or

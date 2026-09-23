@@ -27,6 +27,8 @@ import time
 from pathlib import Path
 from typing import Optional, Union
 
+import rate_guard
+
 try:
     from google import genai
     _GENAI_AVAILABLE = True
@@ -45,6 +47,61 @@ MODEL = "gemini-3.5-flash-lite"  # gemini-3.5-flash was tried first, but its
 
 class ExtractionError(Exception):
     pass
+
+
+def _validate_extracted_dict(data: dict, *, int_fields: tuple = (),
+                              list_fields: tuple = ()) -> dict:
+    """
+    Sanity-checks structural things Gemini's JSON response should always
+    satisfy but isn't guaranteed to -- a wrong type, a negative count, a
+    field that's just missing. Not a full schema validator; just a
+    guardrail against the kind of malformed output that would otherwise
+    silently corrupt a downstream comparison or decision (a negative
+    guest_count feeding straight into a percent-change calculation, a
+    menu_items that's a string instead of a list crashing every caller
+    differently and confusingly).
+
+    Auto-corrects what's safely recoverable (a negative count reset to 0)
+    and force-downgrades _confidence + appends a note when it does, so
+    the record still flows through the app's existing
+    low-confidence-needs-human-review path instead of either crashing on
+    something fixable or silently trusting a suspicious value. Raises
+    ExtractionError only for a structural problem that can't be safely
+    auto-corrected (a required field is entirely the wrong type).
+    """
+    notes = []
+
+    for field in int_fields:
+        if field not in data:
+            continue
+        val = data[field]
+        try:
+            val = int(val)
+        except (TypeError, ValueError):
+            raise ExtractionError(
+                f"Extracted field '{field}' is not a valid number: {val!r}"
+            )
+        if val < 0:
+            notes.append(f"'{field}' was negative ({val}), reset to 0")
+            val = 0
+        data[field] = val
+
+    for field in list_fields:
+        if field in data and not isinstance(data[field], list):
+            raise ExtractionError(
+                f"Extracted field '{field}' should be a list of items, got "
+                f"{type(data[field]).__name__}: {data[field]!r}"
+            )
+
+    if data.get("_confidence") not in ("high", "medium", "low"):
+        notes.append("'_confidence' was missing or not one of high/medium/low")
+
+    if notes:
+        data["_confidence"] = "low"
+        existing = data.get("_confidence_notes", "") or ""
+        data["_confidence_notes"] = (existing + " " if existing else "") + "; ".join(notes)
+
+    return data
 
 
 CONTRACT_SCHEMA_PROMPT = """You are extracting structured data from an event
@@ -335,8 +392,11 @@ def _call_gemini_extract(schema_prompt: str, *, text: Optional[str] = None,
     last_error = None
     for attempt in range(len(retry_backoff_seconds) + 1):
         try:
+            rate_guard.check_and_increment()
             response = client.models.generate_content(model=MODEL, contents=contents)
             break
+        except rate_guard.RateLimitExceeded as e:
+            raise ExtractionError(str(e)) from e
         except genai_errors.ServerError as e:
             last_error = e
             if attempt < len(retry_backoff_seconds):
@@ -396,7 +456,10 @@ def extract_contract(file_path) -> dict:
     path = Path(file_path)
     result = _call_gemini_extract(CONTRACT_SCHEMA_PROMPT, file_path=path)
     assert isinstance(result, dict), f"Expected a JSON object, got {type(result).__name__}"
-    return result
+    return _validate_extracted_dict(
+        result, int_fields=("guest_count",),
+        list_fields=("contracted_menu_items", "guaranteed_allergen_free"),
+    )
 
 
 def extract_production_sheet(file_path) -> dict:
@@ -404,7 +467,8 @@ def extract_production_sheet(file_path) -> dict:
     path = Path(file_path)
     result = _call_gemini_extract(PRODUCTION_SHEET_SCHEMA_PROMPT, file_path=path)
     assert isinstance(result, dict), f"Expected a JSON object, got {type(result).__name__}"
-    return result
+    return _validate_extracted_dict(result, int_fields=("guest_count",),
+                                     list_fields=("menu_items",))
 
 
 def extract_packing_list_for_allergens(file_path) -> dict:
@@ -423,7 +487,8 @@ def extract_packing_list_for_allergens(file_path) -> dict:
     path = Path(file_path)
     result = _call_gemini_extract(PACKING_LIST_ALLERGEN_SCHEMA_PROMPT, file_path=path)
     assert isinstance(result, dict), f"Expected a JSON object, got {type(result).__name__}"
-    return result
+    return _validate_extracted_dict(result, int_fields=("guest_count",),
+                                     list_fields=("menu_items",))
 
 
 def extract_pull_sheet(file_path) -> list:
@@ -442,12 +507,16 @@ def extract_pull_sheet(file_path) -> list:
     result = _call_gemini_extract(PULL_SHEET_SCHEMA_PROMPT, file_path=path)
 
     if isinstance(result, dict):
-        return [result]
-    if isinstance(result, list):
-        return result
-    raise ExtractionError(
-        f"Expected a JSON array of event blocks, got {type(result).__name__}"
-    )
+        blocks = [result]
+    elif isinstance(result, list):
+        blocks = result
+    else:
+        raise ExtractionError(
+            f"Expected a JSON array of event blocks, got {type(result).__name__}"
+        )
+    return [_validate_extracted_dict(b, int_fields=("guest_count",),
+                                      list_fields=("secure_items",))
+            for b in blocks]
 
 
 def extract_contract_record(file_path) -> dict:
@@ -461,7 +530,8 @@ def extract_contract_record(file_path) -> dict:
     path = Path(file_path)
     result = _call_gemini_extract(CONTRACT_RECORD_SCHEMA_PROMPT, file_path=path)
     assert isinstance(result, dict), f"Expected a JSON object, got {type(result).__name__}"
-    return result
+    return _validate_extracted_dict(result, int_fields=("guest_count",),
+                                     list_fields=("menu_items",))
 
 
 def extract_ingredient_list(file_path) -> dict:
@@ -474,4 +544,4 @@ def extract_ingredient_list(file_path) -> dict:
     path = Path(file_path)
     result = _call_gemini_extract(INGREDIENT_LIST_SCHEMA_PROMPT, file_path=path)
     assert isinstance(result, dict), f"Expected a JSON object, got {type(result).__name__}"
-    return result
+    return _validate_extracted_dict(result, list_fields=("ingredients",))

@@ -35,9 +35,16 @@ version, and nobody catches it.
   check, with Gemini-inferred ingredients (clearly labeled, never treated
   as verified) and a persistent per-dish allergen reference that grows as
   you confirm findings.
+- **Guardrails** — every uploaded document (real customer PII) is
+  cleaned up from local disk right after extraction rather than left to
+  accumulate; a daily call-count circuit breaker caps Gemini spend
+  against a runaway bug; and every extraction is validated (a bad type
+  raises, a negative count auto-corrects with confidence downgraded)
+  before it can reach the decision layer.
 
 Run it: see "Running the Contract Version Tracker" below. Full detail on
-every feature above: [docs/DESIGN.md](docs/DESIGN.md#contract-version-tracker-apppy).
+every feature above, including the guardrails:
+[docs/DESIGN.md](docs/DESIGN.md#contract-version-tracker-apppy).
 
 ## `app_compliance_agent_full.py` — the original, broader compliance agent
 
@@ -104,6 +111,7 @@ event-compliance-agent/
 │   ├── recall_checker.py        live openFDA recall lookup (real-time, opt-in)
 │   ├── contract_diff.py         diffs two contract versions, flags what changed
 │   ├── pull_sheet_check.py      fuzzy contract-vs-pull-sheet coverage check
+│   ├── rate_guard.py            shared daily Gemini call-count circuit breaker
 │   └── agent.py                 decision layer + audit trail + report
 ├── data/sample_events/          4 sample events (995, 1002, 1140, 2201 — contract-change demo)
 ├── evaluation/

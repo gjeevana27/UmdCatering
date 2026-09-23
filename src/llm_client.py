@@ -21,6 +21,8 @@ import json
 import os
 import time
 
+import rate_guard
+
 try:
     from google import genai
     from google.genai import errors as genai_errors
@@ -53,8 +55,11 @@ def _call_gemini_judge(prompt: str) -> dict:
     last_error = None
     for attempt in range(len(_RETRY_BACKOFF_SECONDS) + 1):
         try:
+            rate_guard.check_and_increment()
             response = client.models.generate_content(model=MODEL, contents=prompt)
             break
+        except rate_guard.RateLimitExceeded as e:
+            raise RuntimeError(str(e)) from e
         except genai_errors.ServerError as e:
             last_error = e
             if attempt < len(_RETRY_BACKOFF_SECONDS):

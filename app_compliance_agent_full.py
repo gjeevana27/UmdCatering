@@ -14,6 +14,7 @@ Deploy (free):
     free key (no credit card) at https://aistudio.google.com/apikey
 """
 
+import contextlib
 import json
 import sys
 import tempfile
@@ -38,6 +39,25 @@ from parser import (Contract, ProductionSheet, load_event, load_contract,  # noq
 st.set_page_config(page_title="Event Compliance Agent", page_icon="🍽️", layout="wide")
 
 SAMPLE_EVENTS_DIR = Path(__file__).resolve().parent / "data" / "sample_events"
+
+
+@contextlib.contextmanager
+def _temp_upload_file(uploaded_file):
+    """Writes an uploaded file to a temp path (extract.py needs a real
+    file path, not bytes, to hand Gemini) and guarantees it's deleted
+    afterward, success or failure. Every file processed here is a real
+    photo/PDF of a real customer's contract -- leaving these to
+    accumulate unbounded in the OS temp directory (the previous
+    delete=False behavior, kept only so the file survived long enough
+    for extract.py to open it by path) is a real PII exposure risk on
+    whatever machine runs this app, not just a tidiness issue."""
+    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded_file.name).suffix) as tf:
+        tf.write(uploaded_file.getvalue())
+        tmp_path = tf.name
+    try:
+        yield tmp_path
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
 
 
 def render_report(review: agent.EventReview):
@@ -198,42 +218,37 @@ with tab_extract:
             with st.spinner("Reading documents with Gemini..."):
                 contract = sheet = pull_sheet = None
                 try:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(contract_upload.name).suffix) as tf:
-                        tf.write(contract_upload.getvalue())
-                        c_path = tf.name
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(sheet_upload.name).suffix) as tf:
-                        tf.write(sheet_upload.getvalue())
-                        s_path = tf.name
+                    with _temp_upload_file(contract_upload) as c_path, \
+                            _temp_upload_file(sheet_upload) as s_path:
+                        c_data = extract.extract_contract(c_path)
+                        contract, c_conf, c_notes = contract_from_extracted(c_data)
+                        confidence_banner(c_conf, c_notes, "Contract")
+                        with st.expander("Extracted contract (review before trusting)"):
+                            st.json(c_data)
 
-                    c_data = extract.extract_contract(c_path)
-                    contract, c_conf, c_notes = contract_from_extracted(c_data)
-                    confidence_banner(c_conf, c_notes, "Contract")
-                    with st.expander("Extracted contract (review before trusting)"):
-                        st.json(c_data)
-
-                    if sheet_kind.startswith("Recipe-card"):
-                        s_data = extract.extract_production_sheet(s_path)
-                        sheet, s_conf, s_notes = production_sheet_from_extracted(s_data)
-                        confidence_banner(s_conf, s_notes, "Production sheet")
-                        with st.expander("Extracted production sheet (review before trusting)"):
-                            st.json(s_data)
-                    else:
-                        # Pull sheets can contain multiple events per photo;
-                        # match against the extracted contract's event_id if
-                        # more than one block came back.
-                        blocks = extract.extract_pull_sheet(s_path)
-                        chosen = blocks[0]
-                        if len(blocks) > 1:
-                            matches = [b for b in blocks if str(b.get("event_id")) == str(contract.event_id)]
-                            if matches:
-                                chosen = matches[0]
-                            st.caption(f"Found {len(blocks)} event blocks on this page — "
-                                       f"using event #{chosen.get('event_id')}"
-                                       f"{' (matched to contract)' if matches else ' (first found — did not match contract event_id, check manually)'}")
-                        pull_sheet, ps_conf, ps_notes = pull_sheet_from_extracted(chosen)
-                        confidence_banner(ps_conf, ps_notes, "Pull sheet")
-                        with st.expander("Extracted pull sheet (review before trusting)"):
-                            st.json(chosen)
+                        if sheet_kind.startswith("Recipe-card"):
+                            s_data = extract.extract_production_sheet(s_path)
+                            sheet, s_conf, s_notes = production_sheet_from_extracted(s_data)
+                            confidence_banner(s_conf, s_notes, "Production sheet")
+                            with st.expander("Extracted production sheet (review before trusting)"):
+                                st.json(s_data)
+                        else:
+                            # Pull sheets can contain multiple events per photo;
+                            # match against the extracted contract's event_id if
+                            # more than one block came back.
+                            blocks = extract.extract_pull_sheet(s_path)
+                            chosen = blocks[0]
+                            if len(blocks) > 1:
+                                matches = [b for b in blocks if str(b.get("event_id")) == str(contract.event_id)]
+                                if matches:
+                                    chosen = matches[0]
+                                st.caption(f"Found {len(blocks)} event blocks on this page — "
+                                           f"using event #{chosen.get('event_id')}"
+                                           f"{' (matched to contract)' if matches else ' (first found — did not match contract event_id, check manually)'}")
+                            pull_sheet, ps_conf, ps_notes = pull_sheet_from_extracted(chosen)
+                            confidence_banner(ps_conf, ps_notes, "Pull sheet")
+                            with st.expander("Extracted pull sheet (review before trusting)"):
+                                st.json(chosen)
 
                 except extract.ExtractionError as e:
                     st.error(f"Extraction failed: {e}")
@@ -333,10 +348,8 @@ with tab_allergen:
             if st.button("Scan", key="scan_photo") and photo:
                 with st.spinner("Reading the dish with Gemini..."):
                     try:
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(photo.name).suffix) as tf:
-                            tf.write(photo.getvalue())
-                            p_path = tf.name
-                        data = extract.extract_ingredient_list(p_path)
+                        with _temp_upload_file(photo) as p_path:
+                            data = extract.extract_ingredient_list(p_path)
                         confidence_banner(data.get("_confidence", "unknown"),
                                            data.get("_confidence_notes", ""), "Ingredient list")
                         with st.expander("Extracted ingredients (review before trusting)"):

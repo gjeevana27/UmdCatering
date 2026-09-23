@@ -26,6 +26,7 @@ Requires:
         Set via env var locally or st.secrets on Streamlit Cloud.
 """
 
+import contextlib
 import hashlib
 import json
 import os
@@ -180,6 +181,25 @@ def get_firestore_client():
 
 
 client = get_firestore_client()
+
+
+@contextlib.contextmanager
+def _temp_upload_file(uploaded_file):
+    """Writes an uploaded file to a temp path (extract.py needs a real
+    file path, not bytes, to hand Gemini) and guarantees it's deleted
+    afterward, success or failure. Every file processed here is a real
+    photo/PDF of a real customer's contract -- leaving these to
+    accumulate unbounded in the OS temp directory (the previous
+    delete=False behavior, kept only so the file survived long enough
+    for extract.py to open it by path) is a real PII exposure risk on
+    whatever machine runs this app, not just a tidiness issue."""
+    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded_file.name).suffix) as tf:
+        tf.write(uploaded_file.getvalue())
+        tmp_path = tf.name
+    try:
+        yield tmp_path
+    finally:
+        Path(tmp_path).unlink(missing_ok=True)
 
 
 # ---------------------------------------------------------------------------
@@ -355,10 +375,8 @@ def _extract_and_classify(division: str, uploaded):
     file_hash = hashlib.sha256(file_bytes).hexdigest()
 
     try:
-        with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded.name).suffix) as tf:
-            tf.write(file_bytes)
-            tmp_path = tf.name
-        data = extract.extract_contract_record(tmp_path)
+        with _temp_upload_file(uploaded) as tmp_path:
+            data = extract.extract_contract_record(tmp_path)
     except extract.ExtractionError as e:
         return ("outcome", {"icon": "🔴", "name": uploaded.name,
                              "message": f"Extraction failed: {e}"})
@@ -1027,9 +1045,6 @@ def render_allergen_scan():
         for i, photo in enumerate(photos, start=1):
             with st.spinner(f"Reading {i} of {len(photos)} with Gemini: {photo.name}"):
                 try:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=Path(photo.name).suffix) as tf:
-                        tf.write(photo.getvalue())
-                        p_path = tf.name
                     # extract_packing_list_for_allergens(), not
                     # extract_production_sheet() -- a packing list has no
                     # real ingredients printed on it at all, just a dish
@@ -1041,7 +1056,8 @@ def render_allergen_scan():
                     # bleeds into extract_production_sheet(), which the
                     # full compliance pipeline relies on for stricter,
                     # literal-reading checks.
-                    data = extract.extract_packing_list_for_allergens(p_path)
+                    with _temp_upload_file(photo) as p_path:
+                        data = extract.extract_packing_list_for_allergens(p_path)
                 except extract.ExtractionError as e:
                     st.error(f"{photo.name}: extraction failed: {e}")
                     continue
