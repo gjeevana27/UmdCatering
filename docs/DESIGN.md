@@ -167,9 +167,11 @@ everything below:
   dishes/sauces (satay, Caesar dressing, hoisin, romesco) to the allergens
   they typically carry, not just literal ingredient-name matches. This is
   what catches the cases a keyword scan misses.
-- **Auto-clear is conservative.** Only low-severity, non-allergen findings
-  are ever auto-cleared. Everything allergen-related is either escalated or
-  routed to a human — never silently cleared.
+- **No silent third tier.** Every change contract_agent.py sees resolves
+  to escalate or review — never a quiet auto-clear, for any field,
+  allergen-related or not. A small guest-count bump or a qty/unit tweak
+  still surfaces, because deciding something's "too minor to matter" is
+  itself a judgment call this system doesn't make on the chef's behalf.
 - **No API key = safe degraded mode, not a broken demo.** Ambiguous cases
   default to human review rather than the system guessing.
 

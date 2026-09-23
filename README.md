@@ -2,9 +2,9 @@
 
 An autonomous decision agent for catering-operations compliance: it
 perceives contracts (photo/PDF), remembers prior versions, reasons about
-what changed, and acts — escalating, flagging for review, or clearing
-each finding on its own, calling an LLM only where its own rules can't
-resolve ambiguity, and logging why behind every decision.
+what changed, and acts — escalating or flagging each finding for review
+on its own, calling an LLM only where its own rules can't resolve
+ambiguity, and logging why behind every decision.
 
 **Full rationale, architecture, and known limitations:**
 [docs/DESIGN.md](docs/DESIGN.md).
@@ -21,8 +21,8 @@ Google Cloud Firestore · python-dateutil
 | **Perception** | `extract.py` — Gemini vision turns a photographed/scanned contract into structured state |
 | **Memory** | Firestore — full per-event change history, plus a per-dish allergen reference that accumulates across every scan |
 | **Reasoning** | `contract_agent.py` — rule engine + Gemini judgment call for genuinely ambiguous cases |
-| **Action** | autonomous escalate / review / auto-clear decision on every change, notification generation, no human step required to trigger it |
-| **Guardrails** | daily call-rate circuit breaker, output/schema validation, a hard-coded rule an allergen conflict can never be auto-cleared |
+| **Action** | autonomous escalate / review decision on every change (deliberately no third, silent "auto-clear" tier — nothing is ever dismissed without a human seeing it), notification generation, no human step required to trigger it |
+| **Guardrails** | daily call-rate circuit breaker, output/schema validation, extraction confidence promotes every "review" to "escalate" when the upstream read wasn't trusted |
 | **Explainability** | every decision is logged with the reasoning that produced it — no black-box output |
 
 ## Features
@@ -110,7 +110,7 @@ Google Cloud Firestore · python-dateutil
 | App framework | Streamlit | `app.py` |
 | LLM | Gemini API (`gemini-3.5-flash-lite`) | extraction (vision), ambiguous-case judgment |
 | Storage | Google Cloud Firestore | per-division records, notifications, dish-allergen reference |
-| Reasoning / decision engine | `contract_agent.py` | autonomous escalate / review / auto-clear on every change, Gemini consulted for ambiguous judgment calls |
+| Reasoning / decision engine | `contract_agent.py` | autonomous escalate / review on every change (no auto-clear tier), Gemini consulted for ambiguous judgment calls |
 | Agent memory | Firestore change history + persistent allergen reference | carries context across runs rather than treating each upload as stateless |
 | Rate/cost control | `rate_guard.py` | shared daily call-count circuit breaker |
 
