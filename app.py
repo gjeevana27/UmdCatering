@@ -25,7 +25,6 @@ Requires:
 """
 
 import contextlib
-import hashlib
 import json
 import os
 import sys
@@ -45,7 +44,6 @@ load_dotenv()  # loads .env from the project root, if it exists -- see
 # instead (Streamlit Cloud never has a .env file).
 
 import allergen_scan  # noqa: E402
-import contract_agent  # noqa: E402
 import contract_store as store  # noqa: E402
 import extract  # noqa: E402
 import llm_client  # noqa: E402
@@ -201,163 +199,22 @@ def _temp_upload_file(uploaded_file):
 
 
 # ---------------------------------------------------------------------------
-# Shared rendering
+# Upload orchestration -- thin Streamlit wrappers around the shared
+# extract/diff/store/notify pipeline in contract_store.py. That module owns
+# the actual logic now (moved out of app.py) specifically so
+# intake_agent.py's folder watcher can share it too, instead of
+# re-implementing a second version that could silently drift from this one.
+# The only job left here: translate the shared functions' plain-dict
+# results into this app's Streamlit session_state, for the
+# pending-confirmation UI in _render_pending_confirmations below.
 # ---------------------------------------------------------------------------
-def _change_label(c) -> tuple:
-    """Shared by the on-screen diff and the notification log, so a stored
-    notification always reads exactly like what was shown at upload time.
-
-    Returns (title, subtext, css). `title` is kept short and scannable --
-    what changed and, for a quantity, by how much -- so it reads at a
-    glance. Anything longer (an item's description, the full before/after
-    of a description edit) goes in `subtext` instead of being crammed
-    onto the same line, for display as a smaller continuation line below
-    the title rather than one long run-on string.
-    """
-    if hasattr(c, "field"):  # FieldChange
-        title = f"{c.field.replace('_', ' ')}: {c.old_value} → {c.new_value}"
-        return title, "", "field-changed"
-
-    if c.change_type == "added":
-        qty = f" ({c.qty_unit})" if c.qty_unit else ""
-        return f"ADDED — {c.recipe_name}{qty}", c.item_description, "menu-added"
-
-    if c.change_type == "removed":
-        qty = f" (was {c.qty_unit})" if c.qty_unit else ""
-        return f"REMOVED — {c.recipe_name}{qty}", c.item_description, "menu-removed"
-
-    # "changed" -- qty/unit and/or description differ (see
-    # contract_store.diff_records). Keep a qty/unit change in the title
-    # itself (short, always worth seeing immediately); push a description
-    # change's full before/after to the subtext line instead.
-    qty_changed = "qty/unit:" in c.detail
-    desc_changed = bool(c.old_description or c.new_description)
-    if qty_changed and not desc_changed:
-        title = f"CHANGED — {c.recipe_name}: {c.detail}"
-        subtext = ""
-    elif desc_changed and not qty_changed:
-        title = f"CHANGED — {c.recipe_name}: description updated"
-        subtext = f"'{c.old_description}' → '{c.new_description}'"
-    else:
-        title = f"CHANGED — {c.recipe_name}: qty/unit and description updated"
-        subtext = c.detail
-    return title, subtext, "menu-changed"
-
-
-def _serialize_decisions(result: dict) -> list:
-    """Flattens a contract_agent.evaluate_changes() result into plain,
-    Firestore-storable dicts for save_notification()."""
-    out = []
-    for bucket in ("escalate", "review"):
-        for d in result[bucket]:
-            title, subtext, _ = _change_label(d.change)
-            out.append({"label": title, "subtext": subtext, "decision": bucket,
-                        "reasoning": d.reasoning, "made_by": d.made_by})
-    return out
-
-
-def _evaluate_and_store(division: str, data: dict, prior, new_record, *, migrate_from=None) -> dict:
-    """Shared tail end: diff prior vs. new_record, save new_record, log a
-    notification if anything changed. `prior` may be None (nothing to
-    diff against -- shouldn't happen when this is called, but handled for
-    safety). `migrate_from`, if given, is a ContractRecord whose OLD
-    (event_id, event_date) document gets deleted after the new one is
-    saved -- used for a confirmed reschedule, so linking two dates
-    together still leaves exactly one active record for that event
-    lineage rather than a stale orphan."""
-    field_changes, menu_changes = store.diff_records(prior, new_record) if prior else ([], [])
-    store.save(client, new_record)
-    if migrate_from is not None:
-        store.delete_record(client, division, migrate_from.event_id, migrate_from.event_date)
-
-    reschedule_note = (f"Rescheduled from {prior.event_date} to {new_record.event_date} -- "
-                        if migrate_from is not None else "")
-
-    serialized = []
-    if field_changes or menu_changes:
-        result = contract_agent.evaluate_changes(field_changes, menu_changes,
-                                                  extraction_confidence=data.get("_confidence", "high"))
-        serialized = _serialize_decisions(result)
-
-    # Anything still unresolved from an EARLIER notification on this same
-    # event gets folded into this one too, rather than staying stuck in a
-    # separate, easy-to-miss older notification -- a chef checking "the
-    # latest notification" for an event should see everything still
-    # outstanding, not just what changed in this specific diff. Runs even
-    # when this diff found nothing new, so an older unresolved item never
-    # gets silently orphaned by a no-op re-upload.
-    carried = store.pull_unresolved_changes_for_event(client, division, new_record.event_id)
-    seen_labels = {c["label"] for c in serialized}
-    for c in carried:
-        if c["label"] not in seen_labels:
-            serialized.append(c)
-            seen_labels.add(c["label"])
-
-    if not serialized:
-        return {"icon": "⚪", "name": new_record.source_filename,
-                "message": f"{reschedule_note}No other changes for event {new_record.event_id}."}
-
-    store.save_notification(client, division, new_record.event_id,
-                             new_record.source_filename, serialized)
-    escalate_n = sum(1 for c in serialized if c["decision"] == "escalate")
-    review_n = len(serialized) - escalate_n
-    icon = "🔴" if escalate_n else "🟡"
-    return {"icon": icon, "name": new_record.source_filename,
-            "message": f"{reschedule_note}Updated event {new_record.event_id} — "
-                       f"{escalate_n} to act on, {review_n} to review — "
-                       f"see the Notifications tab."}
-
-
 def _diff_and_store(division: str, data: dict, new_record, link_to_prior_date=None) -> dict:
-    """Looks up whatever's on file for this EXACT (event_id, event_date)
-    pair and either stores it as a new baseline, skips it as an exact-file
-    repeat, defers it pending a reschedule-vs-separate-booking decision, or
-    diffs + saves + logs a notification. Returns one {"icon", "name",
-    "message"} outcome for the batch summary.
-
-    link_to_prior_date: a ContractRecord for this event_id under a
-    DIFFERENT date, only passed when the chef has just confirmed (via
-    _render_pending_confirmations) that this upload is the same event,
-    rescheduled -- diffs against that prior record instead of doing a
-    fresh exact-match lookup, and retires the prior record afterward.
-    """
-    if link_to_prior_date is not None:
-        return _evaluate_and_store(division, data, link_to_prior_date, new_record,
-                                    migrate_from=link_to_prior_date)
-
-    existing = store.lookup(client, division, new_record.event_id, new_record.event_date)
-
-    if existing is not None:
-        if existing.source_file_hash and existing.source_file_hash == new_record.source_file_hash:
-            # Byte-for-byte the same file already on record -- nothing on
-            # the actual document could have changed, so skip the diff
-            # entirely rather than trust two independent Gemini reads of
-            # the identical image to agree on every field.
-            return {"icon": "⚪", "name": new_record.source_filename,
-                    "message": f"Exact same file already on record for event "
-                               f"{new_record.event_id} — nothing to compare."}
-        return _evaluate_and_store(division, data, existing, new_record)
-
-    # No record for this exact (event_id, event_date). Before treating it
-    # as a brand-new event, check whether this event_id has history under
-    # a DIFFERENT date -- that might be the same event, rescheduled.
-    others = store.find_other_dates(client, division, new_record.event_id,
-                                     exclude_event_date=new_record.event_date)
-    if not others:
-        store.save(client, new_record)
-        return {"icon": "🟢", "name": new_record.source_filename,
-                "message": f"New — stored as the baseline for event {new_record.event_id}."}
-
-    prior = others[0]
-    pending_key = f"batch_pending_{division}"
-    st.session_state.setdefault(pending_key, []).append({
-        "reason": "reschedule", "data": data, "new_record": new_record,
-        "prior_record": prior,
-    })
-    return {"icon": "🟡", "name": new_record.source_filename,
-            "message": f"Event {new_record.event_id} is on file under a different date "
-                       f"({prior.event_date}), this upload says {new_record.event_date} "
-                       f"— waiting for your decision below."}
+    result = store.diff_and_store(client, division, data, new_record,
+                                   link_to_prior_date=link_to_prior_date)
+    if result.get("status") == "needs_review" and result.get("reason") == "reschedule_ambiguous":
+        pending_key = f"batch_pending_{division}"
+        st.session_state.setdefault(pending_key, []).append(result["pending"])
+    return result
 
 
 def _extract_and_classify(division: str, uploaded):
@@ -369,56 +226,20 @@ def _extract_and_classify(division: str, uploaded):
     terminal case (extraction failure, division mismatch/pending, missing
     event ID), or ("ready", data, new_record) for a file that's ready to
     be diffed and stored."""
-    file_bytes = uploaded.getvalue()
-    file_hash = hashlib.sha256(file_bytes).hexdigest()
+    with _temp_upload_file(uploaded) as tmp_path:
+        result = store.extract_and_classify(tmp_path, uploaded.name, division=division)
 
-    try:
-        with _temp_upload_file(uploaded) as tmp_path:
-            data = extract.extract_contract_record(tmp_path)
-    except extract.ExtractionError as e:
-        return ("outcome", {"icon": "🔴", "name": uploaded.name,
-                             "message": f"Extraction failed: {e}"})
+    if result["status"] == "ready":
+        return ("ready", result["data"], result["new_record"])
 
-    extracted_division = str(data.get("division", "")).strip()
-    if extracted_division and extracted_division.lower() != division.lower():
-        return ("outcome", {"icon": "🔴", "name": uploaded.name,
-                             "message": f"Division mismatch — looks like a {extracted_division} "
-                                        f"contract (read from its header/footer). Skipped, not stored."})
-
-    items = [store.MenuLineItem(qty_unit=i.get("qty_unit", ""),
-                                 recipe_name=i.get("recipe_name", ""),
-                                 description=i.get("description", ""))
-             for i in data.get("menu_items", [])]
-    new_record = store.ContractRecord(
-        event_id=str(data.get("event_id", "")).strip(),
-        event_date=data.get("event_date", ""),
-        event_time=data.get("event_time", ""),
-        location=data.get("location", ""),
-        event_type=data.get("event_type", ""),
-        guest_count=data.get("guest_count", 0),
-        time_desc_notes=data.get("time_desc_notes", ""),
-        menu_items=items,
-        division=division,
-        source_filename=uploaded.name,
-        source_file_hash=file_hash,
-        print_datetime=data.get("print_datetime", ""),
-    )
-
-    if not new_record.event_id:
-        return ("outcome", {"icon": "🔴", "name": uploaded.name,
-                             "message": "Could not read an Event ID from this document — "
-                                        "can't store it without one."})
-
-    if not extracted_division:
+    if result.get("reason") == "division_unknown":
         pending_key = f"batch_pending_{division}"
         st.session_state.setdefault(pending_key, []).append({
-            "reason": "division", "data": data, "new_record": new_record,
+            "reason": "division", "data": result["data"], "new_record": result["new_record"],
         })
-        return ("outcome", {"icon": "🟡", "name": uploaded.name,
-                             "message": f"Couldn't confirm this is a {division} document from its "
-                                        f"header/footer — waiting for your confirmation below."})
 
-    return ("ready", data, new_record)
+    return ("outcome", {"icon": result["icon"], "name": result["name"],
+                         "message": result["message"]})
 
 
 def _process_upload_batch(division: str, uploaded_files, on_progress=None) -> list:

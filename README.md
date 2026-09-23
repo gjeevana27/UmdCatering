@@ -18,7 +18,7 @@ Google Cloud Firestore · python-dateutil
 
 | Capability | Implementation |
 |---|---|
-| **Perception** | `extract.py` — Gemini vision turns a photographed/scanned contract into structured state |
+| **Perception** | `extract.py` — Gemini vision turns a photographed/scanned contract into structured state; `classify_document()` decides what KIND of file something is before that even runs |
 | **Memory** | Firestore — full per-event change history, plus a per-dish allergen reference that accumulates across every scan |
 | **Reasoning** | `contract_agent.py` — rule engine + Gemini judgment call for genuinely ambiguous cases |
 | **Action** | autonomous escalate / review decision on every change (deliberately no third, silent "auto-clear" tier — nothing is ever dismissed without a human seeing it), notification generation, no human step required to trigger it |
@@ -43,6 +43,9 @@ Google Cloud Firestore · python-dateutil
   growing per-dish allergen reference.
 - **Guardrails** — PII cleanup, a daily API call-count circuit breaker,
   and output validation on every extraction (see below).
+- **Intake agent** — watches a local folder, classifies each file (is
+  this actually a contract?), and routes it through the same pipeline
+  as a manual upload — no browser, no clicking Upload (see below).
 - **3 automated eval harnesses** covering the decision layer, the LLM
   judgment layer (live), and extraction accuracy (live) (see Evaluation).
 
@@ -81,6 +84,56 @@ Google Cloud Firestore · python-dateutil
           unresolved items carried into the next notification
 ```
 
+## Intake Agent (`src/intake_agent.py`)
+
+Watches one local folder for contract files (`INTAKE_FOLDER_PATH`,
+default `intake/`) and auto-routes them, so getting a contract into the
+system becomes "save the file here" instead of "open the app and click
+Upload." One shared inbox, not one per division — each document's own
+header/footer already declares its division (the same field the manual
+upload flow reads), so a mixed daily batch gets routed to the right
+Firestore collection per file automatically.
+
+```
+   intake/ (watched)
+        │  new file lands
+        ▼
+   classify_document()  (Gemini — cheap, runs BEFORE the full extraction)
+        │
+        ├─ not a contract → intake/needs_review/ + a .txt note explaining why
+        │
+        ▼ "contract"
+   contract_store.extract_and_classify() → contract_store.diff_and_store()
+   (the EXACT SAME pipeline app.py's manual upload uses — no second,
+    possibly-drifting copy of the decision logic)
+        │
+        ├─ ambiguous (division unreadable, reschedule ambiguity,
+        │  no event ID, extraction failed) → intake/needs_review/ + a note.
+        │  Never resolved automatically — left for a human via the normal
+        │  Streamlit upload/confirmation flow, same as any other upload.
+        │
+        ▼ resolved
+   Firestore write (permanent from this point — independent of what
+   happens to the source file afterward) + notification if anything
+   changed → intake/processed/
+```
+
+Deliberately scoped to the input end only: this agent decides *what kind
+of file something is* and *whether it's ready to route*, and never
+touches extraction values or `contract_agent.py`'s escalate/review
+decisions. That boundary is what makes it worth calling agentic — real,
+open-ended classification of unknown input — without weakening the
+deterministic, auditable decision core everywhere else in this project.
+
+Run it (separate from the Streamlit app, keeps running in its own
+terminal):
+```bash
+export GEMINI_API_KEY=...
+export FIRESTORE_CREDENTIALS_PATH=...
+python src/intake_agent.py
+```
+Stop with Ctrl+C. Logs to both the console and `intake/intake_agent.log`.
+
 ## Decision rules (`contract_agent.py`)
 
 | Change | Decision | Rule |
@@ -113,6 +166,7 @@ Google Cloud Firestore · python-dateutil
 | Reasoning / decision engine | `contract_agent.py` | autonomous escalate / review on every change (no auto-clear tier), Gemini consulted for ambiguous judgment calls |
 | Agent memory | Firestore change history + persistent allergen reference | carries context across runs rather than treating each upload as stateless |
 | Rate/cost control | `rate_guard.py` | shared daily call-count circuit breaker |
+| Intake / folder watching | `watchdog` | `intake_agent.py` — live filesystem events for the intake folder |
 
 ## Evaluation
 
@@ -180,7 +234,11 @@ event-compliance-agent/
 │   ├── llm_client.py            Gemini call for ambiguous cases only
 │   ├── extract.py               photo/PDF -> structured JSON via Gemini vision
 │   ├── allergen_scan.py         standalone one-dish allergen scanner (text = free/local)
-│   └── rate_guard.py            shared daily Gemini call-count circuit breaker
+│   ├── rate_guard.py            shared daily Gemini call-count circuit breaker
+│   └── intake_agent.py          watches a local folder, classifies + auto-routes contracts
+├── intake/                      gitignored -- watched folder, real customer documents (local only)
+│   ├── processed/                moved here after successful routing
+│   └── needs_review/             moved here + a .txt note, needs a human
 ├── data/real_examples/          gitignored -- real photos + hand-labeled ground truth (local only)
 │   └── contracts/ground_truth/  ground truth for evaluate_extraction.py
 ├── evaluation/
@@ -223,6 +281,7 @@ Free `GEMINI_API_KEY` (no credit card):
 | `FIRESTORE_CREDENTIALS_PATH` | Yes | path to a Firestore service-account JSON file |
 | `APP_PASSCODE` | No | gates access if deploying publicly |
 | `GEMINI_DAILY_CALL_LIMIT` | No | overrides the 300/day circuit breaker in `rate_guard.py` |
+| `INTAKE_FOLDER_PATH` | No | overrides `intake_agent.py`'s watched folder (default: `intake/` under the repo) |
 
 ## Deploying
 

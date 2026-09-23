@@ -323,6 +323,33 @@ Return ONLY a JSON object with this exact shape, no other text:
   "_confidence_notes": "<one sentence: what was unclear or illegible>"
 }"""
 
+DOCUMENT_CLASSIFY_SCHEMA_PROMPT = """You are looking at ONE page/photo and
+deciding what KIND of document it is -- you are not reading or
+transcribing any of its actual content, only classifying the page itself.
+
+A "Menu Packing List" CONTRACT looks like: a header with an Event ID,
+Event Date, Event Time, and Location under a "DELIVERY INFORMATION"
+section, an Event Type field, a guest count ("# of Guests"), and a table
+of menu line items (a Qty-Unit column, a bold recipe name, a description
+line underneath). It usually ends with a "Print Date/Time:" footer.
+
+A PULL SHEET looks completely different: a flat kitchen-board checklist,
+grouped by "EVENT #", with lines like "Secure [item]: [qty]" -- no menu
+table, no recipe descriptions.
+
+Anything else -- a blank/illegible page, an unrelated document, a photo
+that isn't a catering document at all, a recipe card for a single dish,
+an invoice, a random scan -- is OTHER.
+
+Return ONLY a JSON object with this exact shape, no other text:
+
+{
+  "document_type": "contract" | "pull_sheet" | "other",
+  "reason": "<one short phrase: what you saw that led to this classification>",
+  "_confidence": "high" | "medium" | "low",
+  "_confidence_notes": "<one sentence: what was unclear or illegible, if anything>"
+}"""
+
 
 def _require_genai():
     if not _GENAI_AVAILABLE:
@@ -545,3 +572,32 @@ def extract_ingredient_list(file_path) -> dict:
     result = _call_gemini_extract(INGREDIENT_LIST_SCHEMA_PROMPT, file_path=path)
     assert isinstance(result, dict), f"Expected a JSON object, got {type(result).__name__}"
     return _validate_extracted_dict(result, list_fields=("ingredients",))
+
+
+_DOCUMENT_TYPES = ("contract", "pull_sheet", "other")
+
+
+def classify_document(file_path) -> dict:
+    """
+    file_path: a photo or PDF of unknown origin -- the first step for
+    intake_agent.py's folder watcher, run BEFORE the full, more expensive
+    extract_contract_record() schema, so a non-contract file (a pull
+    sheet, an unrelated document, a blank page) gets identified cheaply
+    instead of being forced through a schema built for something else.
+
+    Returns {document_type, reason, _confidence, _confidence_notes}.
+    document_type is always one of "contract" / "pull_sheet" / "other" --
+    raises ExtractionError if Gemini returns anything outside that set,
+    the same fail-loud philosophy as every other field this module
+    validates, rather than silently trusting an unexpected value.
+    """
+    path = Path(file_path)
+    result = _call_gemini_extract(DOCUMENT_CLASSIFY_SCHEMA_PROMPT, file_path=path)
+    assert isinstance(result, dict), f"Expected a JSON object, got {type(result).__name__}"
+    result = _validate_extracted_dict(result)
+    if result.get("document_type") not in _DOCUMENT_TYPES:
+        raise ExtractionError(
+            f"classify_document() returned an unexpected document_type: "
+            f"{result.get('document_type')!r} (expected one of {_DOCUMENT_TYPES})"
+        )
+    return result
