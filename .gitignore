@@ -30,9 +30,3 @@ data/real_examples/pull_sheets/*
 !data/real_examples/contracts/ground_truth/
 data/real_examples/contracts/ground_truth/*
 !data/real_examples/contracts/ground_truth/.gitkeep
-
-# intake_agent.py's watched folder -- real customer documents pass through
-# here (processed/, needs_review/, and the log file too), same PII reasoning
-# as data/real_examples/ above. Created automatically at runtime; nothing
-# under it needs a .gitkeep.
-intake/

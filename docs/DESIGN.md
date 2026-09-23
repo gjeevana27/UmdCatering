@@ -119,72 +119,6 @@ compliance agent and extended for real packing lists:
   instead of asking again.
 - Multiple uploaded documents render side by side, two events per row.
 
-## Intake Agent (`src/intake_agent.py`)
-
-A separate, standalone script (not part of the Streamlit app — runs in
-its own terminal/process) that watches a local folder for contract
-files and auto-routes them, so getting a contract into the system
-becomes "save the file here" instead of "open the app and click
-Upload." Built specifically to stay on the right side of a line worth
-being explicit about: this agent does open-ended reasoning about *what
-kind of file something is* and *whether it's ready to route* — the part
-of this project genuinely worth calling agentic — but it never touches
-extraction values or `contract_agent.py`'s decisions. Widening that
-scope (letting it re-read a field, resolve an ambiguous case, or
-override an escalation) would trade away exactly the auditability this
-project has been built around, for no real benefit.
-
-- **One shared inbox, not one per division.** A document's own
-  header/footer already declares which division it belongs to — the
-  same field the manual upload flow already reads — so a whole day's
-  mixed batch of Good Tidings and Goodies To Go contracts can be
-  dropped into one folder together, and each file still gets routed to
-  its own division's Firestore collection independently.
-- **Classification runs BEFORE the full extraction, deliberately.**
-  `extract.classify_document()` is a new, cheap Gemini call that answers
-  one question — contract, pull sheet, or other — before
-  `extract_contract_record()`'s full schema ever runs. Forcing an
-  unrelated file through a prompt built for a Menu Packing List would
-  either produce garbage or waste a more expensive call; classifying
-  first means a stray file costs one small call, not a wasted large one.
-- **Shares the exact same pipeline as the manual upload flow, not a
-  second copy of it.** `contract_store.extract_and_classify()` and
-  `contract_store.diff_and_store()` used to live inside `app.py` as
-  `_extract_and_classify()`/`_diff_and_store()`, coupled to Streamlit's
-  `st.session_state` for the two cases that need a human decision
-  (an unreadable division, a possible reschedule). Moved into
-  `contract_store.py` as plain functions that return a structured
-  `{"status": "ready" | "needs_review", ...}` result instead of writing
-  UI state directly — `app.py` now wraps that result into
-  `st.session_state` for its pending-confirmation UI, and
-  `intake_agent.py` wraps the same result into a file move. One
-  implementation of what actually happens to a contract; two thin
-  callers, not two versions of the decision logic that could quietly
-  drift apart from each other over time.
-- **Never resolves an ambiguous case on its own.** A "needs_review"
-  result (unreadable division, reschedule ambiguity, no event ID,
-  extraction failure) moves the file to `intake/needs_review/` with a
-  `.txt` note explaining why, and stops there — the same file would sit
-  in `app.py`'s pending-confirmation queue waiting for a human either
-  way; this agent just has nowhere to ask a human *in the moment*, since
-  there's no browser session watching it. Building a second resolution
-  path for a headless script wasn't worth the risk of it drifting from
-  the Streamlit one.
-- **Debounced against partial writes.** Waits for a file's size to stop
-  changing across two checks, ~2 seconds apart, before reading it — a
-  still-downloading or still-copying file should never be read
-  half-written.
-- **Rate-limit-aware, distinctly from other failures.** Checks
-  `rate_guard.calls_made_today()` before attempting a file; if the daily
-  cap is already hit, the file is left untouched in the inbox to retry
-  once quota resets, rather than moved to `needs_review/` — that
-  distinction matters, since a rate-limited file isn't the file's fault
-  the way a genuine extraction failure is.
-- **Firestore writes outlive the source file.** The moment a file is
-  successfully routed, the Firestore write is permanent — nothing about
-  moving a processed file to `processed/`, or deleting it there months
-  later, touches what's already stored.
-
 ## Guardrails
 
 `src/extract.py` and `src/llm_client.py` are the common call points for
@@ -275,16 +209,6 @@ everything below:
   first approach, but it means a scanned PDF's read quality depends
   entirely on Gemini's own PDF handling, which hasn't been validated
   against a real scanned banquet order in this environment (see above).
-- **`classify_document()`'s accuracy hasn't been validated against a
-  real document either**, same limitation as extraction above and for
-  the same reason (no `GEMINI_API_KEY`-backed live run possible in this
-  environment). The routing logic around it (file moves, needs_review
-  notes, the rate-limit check) is verified with fabricated inputs — see
-  `intake_agent.py`'s test coverage from its build — but whether the
-  model itself reliably tells a contract apart from a pull sheet or a
-  stray unrelated file is unproven until it runs against real intake
-  traffic. No automated eval exists for it yet, same bottleneck as
-  `evaluate_extraction.py`: it needs real, hand-labeled document images.
 - **The rate-limit circuit breaker is per-process, not persisted.**
   `rate_guard.py`'s daily counter lives in memory — it resets on every app
   restart and isn't shared across instances if this were ever deployed as
