@@ -625,8 +625,13 @@ def _render_notification_row(n: dict, dt):
                 with col_c_text:
                     icon = "🔴" if c.get("decision") == "escalate" else "🟡"
                     tag_label = "[RULE]" if c.get("made_by") == "rule" else "[JUDGED]"
-                    st.markdown(f"{icon} **{c.get('label', '')}**  \n"
-                                f"_{tag_label} {c.get('reasoning', '')}_")
+                    st.markdown(
+                        f'{icon} <span style="font-size:1.15em; font-weight:700;">'
+                        f'{c.get("label", "")}</span><br>'
+                        f'<span style="font-size:0.9em; font-style:italic; '
+                        f'color:var(--ink-soft);">{tag_label} {c.get("reasoning", "")}</span>',
+                        unsafe_allow_html=True,
+                    )
 
 
 def _fire_confetti():
