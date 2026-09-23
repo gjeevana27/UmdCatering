@@ -212,6 +212,22 @@ def find_other_dates(client: firestore.Client, division: str, event_id: str,
     return records
 
 
+def find_by_date(client: firestore.Client, division: str, event_date: str) -> list:
+    """All stored records in this division falling on this calendar date
+    (via the same fuzzy dates_match() comparison used everywhere else in
+    this module, so '5/5/2026' and 'Tuesday, May 5, 2026' match the same
+    events) -- for "what's happening on this date" questions, e.g. from
+    the Ask chatbot. event_date isn't stored in a normalized, indexable
+    form (it's whatever the document literally printed), so this scans
+    every record in the division's collection rather than an indexed
+    query -- fine at the scale a single catering operation's Firestore
+    collection actually reaches, but not a pattern to reuse for anything
+    higher-volume without normalizing the stored field first."""
+    docs = _collection(client, division).stream()
+    return [_record_from_dict(d.to_dict()) for d in docs
+            if dates_match(d.to_dict().get("event_date", ""), event_date)]
+
+
 def save(client: firestore.Client, record: ContractRecord):
     """Overwrites whatever was stored for this EXACT (event_id, event_date)
     pair (per the 'overwrite, don't keep history' decision) -- document ID

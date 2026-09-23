@@ -45,6 +45,9 @@ Google Cloud Firestore · python-dateutil
 - **Allergen Scan tab** — Gemini-inferred ingredients (labeled as
   inference, never as verified), confirmed findings persisted to a
   growing per-dish allergen reference.
+- **Ask tab** — read-only chatbot over stored events and change history,
+  scoped to one division at a time; can't write or change anything, only
+  look things up.
 - **Guardrails** — PII cleanup, a daily API call-count circuit breaker,
   and output validation on every extraction (see below).
 - **3 automated eval harnesses** covering the decision layer, the LLM
@@ -118,7 +121,7 @@ Google Cloud Firestore · python-dateutil
 | Reasoning / decision engine | `contract_agent.py` | autonomous escalate / review on every change (no auto-clear tier), Gemini consulted for ambiguous judgment calls |
 | Agent memory | Firestore change history + persistent allergen reference | carries context across runs rather than treating each upload as stateless |
 | Rate/cost control | `rate_guard.py` | shared daily call-count circuit breaker |
-| Tool-calling | `llm_client.run_tool_loop()` (manual, not the SDK's automatic mode) | `investigation_agent.py` — rate_guard checked every turn, max-turns capped |
+| Tool-calling | `llm_client.run_tool_loop()` (manual, not the SDK's automatic mode) | `investigation_agent.py`, `ask_agent.py` — rate_guard checked every turn, max-turns capped |
 
 ## Evaluation
 
@@ -186,7 +189,9 @@ event-compliance-agent/
 │   ├── llm_client.py            Gemini call for ambiguous cases only
 │   ├── extract.py               photo/PDF -> structured JSON via Gemini vision
 │   ├── allergen_scan.py         standalone one-dish allergen scanner (text = free/local)
-│   └── rate_guard.py            shared daily Gemini call-count circuit breaker
+│   ├── rate_guard.py            shared daily Gemini call-count circuit breaker
+│   ├── investigation_agent.py   opt-in bounded tool-calling agent for escalated items
+│   └── ask_agent.py             read-only chatbot tools, shared tool-loop with investigation_agent.py
 ├── data/real_examples/          gitignored -- real photos + hand-labeled ground truth (local only)
 │   └── contracts/ground_truth/  ground truth for evaluate_extraction.py
 ├── evaluation/
@@ -207,8 +212,8 @@ export FIRESTORE_CREDENTIALS_PATH=... # required -- path to a service-account JS
 streamlit run app.py
 ```
 
-Opens at `http://localhost:8501`. Four tabs: Good Tidings, Goodies To Go,
-Notifications, Allergen Scan.
+Opens at `http://localhost:8501`. Five tabs: Good Tidings, Goodies To Go,
+Notifications, Allergen Scan, Ask.
 
 ### CLI
 

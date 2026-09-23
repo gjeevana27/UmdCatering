@@ -144,6 +144,56 @@ upload.
   before being wired into the UI (both the isolated tool-calling
   mechanics and the full `investigate()` path).
 
+### Ask chatbot (`src/ask_agent.py`)
+
+A read-only "Ask" tab — a chat interface over stored events and change
+history, for open-ended questions ("what's on the menu for event X,"
+"what's happening on this date," "has this event had any changes
+logged") that don't map to a specific button anywhere else in the app.
+
+- **Same shared tool-loop as the investigation agent**
+  (`llm_client.run_tool_loop()`) — no separate loop implementation, same
+  manual-control-for-rate_guard reasoning documented above.
+- **Six read-only tools**, all bound to one `(client, division)` pair via
+  closure: `lookup_event`, `find_other_dates`, `events_on_date` (new --
+  see `contract_store.find_by_date()`), `notifications_for_event`,
+  `get_dish_allergen_note`, `check_known_allergens`. No write-capable
+  tool exists.
+- **Scoped to one division per conversation**, with a division selector
+  at the top of the tab — switching divisions starts a fresh
+  conversation rather than letting one chat span both, preserving the
+  hard boundary enforced everywhere else in this app.
+- `contract_store.find_by_date()` is a full collection scan filtered by
+  fuzzy `dates_match()`, not an indexed query — `event_date` isn't
+  stored in a normalized form, so there's no field to index on directly.
+  Fine at the scale a single catering operation's Firestore collection
+  actually reaches; flagged in its own docstring as not a pattern to
+  reuse at higher volume without normalizing the stored field first.
+
+**A real production bug was found (and fixed) while building this.**
+Testing the chatbot's `lookup_event` tool against real data surfaced
+that every one of the 6 real contract records on file had a legacy
+Firestore document ID (bare `event_id`, e.g. `"95521"`) left over from
+before the current `event_id + event_date` composite-ID scheme existed.
+`contract_store.lookup()` only ever checked the new-style ID, so it
+silently failed to find any of these real records — meaning a revised
+upload for any of these 6 real events would have been treated as a
+brand-new baseline instead of being diffed, with no notification
+generated, exactly the failure mode this entire tool exists to prevent.
+Migrated all 6 to the correct ID. **The migration itself caused real
+data loss for 2 records** (`104086`, `104087` in Goodies To Go): the
+migration script wrote to each record's correct-ID location without
+first checking whether something already existed there, and two of
+those locations already held more recent, correct data (created a day
+earlier) that got silently overwritten before the older legacy data was
+written in its place. Both issues are now closed — every document has a
+unique, correct ID (verified, zero mismatches) — but the pre-overwrite
+content of those 2 specific records was not recoverable from within
+this session (no Point-in-Time Recovery access available). Recorded
+here in full rather than summarized away, since this is exactly the
+kind of incident a project claiming to be careful with real production
+data shouldn't gloss over.
+
 ### Allergen Scan tab
 
 A standalone quick allergen check, folded in from the original

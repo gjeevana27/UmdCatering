@@ -45,6 +45,7 @@ load_dotenv()  # loads .env from the project root, if it exists -- see
 # instead (Streamlit Cloud never has a .env file).
 
 import allergen_scan  # noqa: E402
+import ask_agent  # noqa: E402
 import contract_agent  # noqa: E402
 import contract_store as store  # noqa: E402
 import extract  # noqa: E402
@@ -1099,6 +1100,53 @@ def render_allergen_scan():
                 _render_event_allergen_box(scan["source_filename"], scan["data"])
 
 
+def render_ask_tab():
+    """Read-only chatbot over stored contract/notification data (see
+    src/ask_agent.py). Scoped to ONE division per conversation, same hard
+    boundary enforced everywhere else in this app -- switching the
+    division selector starts a fresh conversation rather than letting one
+    chat span both."""
+    st.header("Ask")
+    st.caption("Ask about events, dates, and change history already on file — "
+               "read-only, scoped to one division at a time. Never changes any "
+               "decision or stored data.")
+
+    if client is None:
+        st.info("Firestore isn't configured — nothing to ask about yet.")
+        return
+    if not llm_client.is_llm_available():
+        st.info("Set GEMINI_API_KEY to use this tab. Free key, no credit card: "
+                 "https://aistudio.google.com/apikey")
+        return
+
+    division = st.radio("Division", store.DIVISIONS, horizontal=True, key="ask_division")
+    history_key = f"ask_history_{division}"
+    if history_key not in st.session_state:
+        st.session_state[history_key] = []
+
+    if st.session_state[history_key] and st.button("Clear conversation", key="ask_clear"):
+        st.session_state[history_key] = []
+        st.rerun()
+
+    for msg in st.session_state[history_key]:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+
+    question = st.chat_input(f"Ask about {division}...")
+    if question:
+        st.session_state[history_key].append({"role": "user", "content": question})
+        with st.chat_message("user"):
+            st.markdown(question)
+        with st.chat_message("assistant"):
+            with st.spinner("Looking..."):
+                try:
+                    answer = ask_agent.ask(client, division, question)
+                except Exception as e:
+                    answer = f"Something went wrong: {e}"
+            st.markdown(answer)
+        st.session_state[history_key].append({"role": "assistant", "content": answer})
+
+
 # ---------------------------------------------------------------------------
 # Layout — one section per division, side by side, never mixed, plus a
 # combined notifications feed.
@@ -1120,8 +1168,8 @@ st.caption("Upload a contract, and it's compared against whatever's already on "
 # right place -- dropped. The count is fully reliable in the in-page
 # "🔔 Notifications (N)" heading instead (see render_notifications()),
 # one click away, with no risk of the DOM-hack failure modes above.
-tab_gt, tab_gtg, tab_notifications, tab_allergen = st.tabs(
-    store.DIVISIONS + ["Notifications", "🔎 Allergen Scan"], key="main_tabs")
+tab_gt, tab_gtg, tab_notifications, tab_allergen, tab_ask = st.tabs(
+    store.DIVISIONS + ["Notifications", "🔎 Allergen Scan", "Ask"], key="main_tabs")
 with tab_gt:
     process_division("Good Tidings")
 with tab_gtg:
@@ -1130,3 +1178,5 @@ with tab_notifications:
     render_notifications()
 with tab_allergen:
     render_allergen_scan()
+with tab_ask:
+    render_ask_tab()
