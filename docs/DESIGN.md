@@ -109,6 +109,41 @@ flow itself:
 - The tab pill rings and shows an unread count whenever anything's
   outstanding, and goes quiet once you're caught up.
 
+### Investigation agent (`src/investigation_agent.py`)
+
+An "Investigate" button appears next to every escalated change (review
+items don't get one — investigation is for things you're about to act
+on, not things you're glancing at). Opt-in and per-item, deliberately
+not automatic on every escalation: it's a real API cost, and the chef
+deciding when more context is worth it is more consistent with this
+project's guardrail philosophy than running it unconditionally on every
+upload.
+
+- **Runs a bounded, manually-controlled Gemini tool-calling loop** (see
+  `llm_client.run_tool_loop()`) with four read-only tools:
+  `get_dish_allergen_note`, `find_other_dates`,
+  `recent_notifications_for_event`, and `check_known_allergens` (a
+  direct wrapper around `allergen_reference.scan_ingredient()`). No
+  write-capable tool exists at all — that's the actual enforcement of
+  "never takes an action," not just a prompt instruction.
+- **Manual control, not the SDK's automatic function calling.**
+  `rate_guard.check_and_increment()` is checked before every single
+  Gemini attempt everywhere else in this project. Automatic function
+  calling would execute the whole tool-call loop inside one
+  `generate_content()` call, with no hook to check rate_guard between
+  the model's internal round-trips. Manual control means every turn is
+  this project's own code calling `generate_content()` directly, so
+  that guarantee holds here too, and a max-turns cap (4) bounds a single
+  investigation's cost independently of the daily limit.
+- **Cached, not re-run.** The result is written back onto that specific
+  change in Firestore (`contract_store.add_investigation_note()`, same
+  read-whole-array-write-it-back pattern as `mark_change_reviewed()`),
+  so investigating something once doesn't mean spending another API
+  call every time that notification re-renders.
+- Verified end to end against real Firestore and a real Gemini call
+  before being wired into the UI (both the isolated tool-calling
+  mechanics and the full `investigate()` path).
+
 ### Allergen Scan tab
 
 A standalone quick allergen check, folded in from the original

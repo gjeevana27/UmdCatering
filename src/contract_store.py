@@ -297,6 +297,20 @@ def mark_change_reviewed(client: firestore.Client, division: str, notification_i
     return changes
 
 
+def add_investigation_note(client: firestore.Client, division: str, notification_id: str,
+                            change_index: int, note: str) -> None:
+    """Caches an investigation agent's note onto ONE change within a
+    notification's `changes` list (same read-whole-array-write-it-back
+    pattern as mark_change_reviewed(), since Firestore has no per-element
+    array update) -- so investigating something once doesn't mean
+    re-spending an API call every time that notification re-renders."""
+    doc_ref = _notification_collection(client, division).document(notification_id)
+    changes = doc_ref.get().to_dict().get("changes", [])
+    if 0 <= change_index < len(changes):
+        changes[change_index]["investigation_note"] = note
+    doc_ref.update({"changes": changes})
+
+
 def list_notifications(client: firestore.Client, division: str, limit: int = 50) -> list:
     """Most recent notifications first, for this division only. Each dict
     includes the Firestore document id under "_id" -- callers need a

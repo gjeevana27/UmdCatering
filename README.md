@@ -21,6 +21,7 @@ Google Cloud Firestore · python-dateutil
 | **Perception** | `extract.py` — Gemini vision turns a photographed/scanned contract into structured state |
 | **Memory** | Firestore — full per-event change history, plus a per-dish allergen reference that accumulates across every scan |
 | **Reasoning** | `contract_agent.py` — rule engine + Gemini judgment call for genuinely ambiguous cases |
+| **Investigation** | `investigation_agent.py` — opt-in, bounded Gemini tool-calling loop (read-only Firestore/allergen-reference lookups) that adds context to an escalated change; never touches the decision itself |
 | **Action** | autonomous escalate / review decision on every change (deliberately no third, silent "auto-clear" tier — nothing is ever dismissed without a human seeing it), notification generation, no human step required to trigger it |
 | **Guardrails** | daily call-rate circuit breaker, output/schema validation, extraction confidence promotes every "review" to "escalate" when the upstream read wasn't trusted |
 | **Explainability** | every decision is logged with the reasoning that produced it — no black-box output |
@@ -38,6 +39,9 @@ Google Cloud Firestore · python-dateutil
   Worth-a-glance, never silently logged away.
 - **Notifications tab** — day-grouped, checkbox-reviewed, unresolved items
   carried forward so nothing is missed by checking only the latest one.
+- **Investigate button on escalated items** — opt-in, one click, runs a
+  bounded tool-calling agent (read-only lookups only) to add context
+  before you act; the result is cached so it's never re-run for free.
 - **Allergen Scan tab** — Gemini-inferred ingredients (labeled as
   inference, never as verified), confirmed findings persisted to a
   growing per-dish allergen reference.
@@ -114,6 +118,7 @@ Google Cloud Firestore · python-dateutil
 | Reasoning / decision engine | `contract_agent.py` | autonomous escalate / review on every change (no auto-clear tier), Gemini consulted for ambiguous judgment calls |
 | Agent memory | Firestore change history + persistent allergen reference | carries context across runs rather than treating each upload as stateless |
 | Rate/cost control | `rate_guard.py` | shared daily call-count circuit breaker |
+| Tool-calling | `llm_client.run_tool_loop()` (manual, not the SDK's automatic mode) | `investigation_agent.py` — rate_guard checked every turn, max-turns capped |
 
 ## Evaluation
 

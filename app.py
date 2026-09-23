@@ -48,6 +48,7 @@ import allergen_scan  # noqa: E402
 import contract_agent  # noqa: E402
 import contract_store as store  # noqa: E402
 import extract  # noqa: E402
+import investigation_agent  # noqa: E402
 import llm_client  # noqa: E402
 
 st.set_page_config(page_title="Good-to-Go", page_icon="🍽️", layout="wide")
@@ -681,6 +682,22 @@ def _render_notification_row(n: dict, dt):
                         f'color:var(--ink-soft);">{tag_label} {c.get("reasoning", "")}</span>',
                         unsafe_allow_html=True,
                     )
+                    if c.get("decision") == "escalate":
+                        investigation_note = c.get("investigation_note")
+                        if investigation_note:
+                            st.caption(f"Investigation: {investigation_note}")
+                        elif llm_client.is_llm_available():
+                            if st.button("Investigate", key=f"investigate_{notif_id}_{i}"):
+                                with st.spinner("Investigating..."):
+                                    try:
+                                        note = investigation_agent.investigate(
+                                            client, division, n.get("event_id", ""),
+                                            c.get("label", ""), c.get("reasoning", ""),
+                                        )
+                                    except Exception as e:
+                                        note = f"Investigation failed: {e}"
+                                store.add_investigation_note(client, division, notif_id, i, note)
+                                st.rerun()
 
 
 def _fire_confetti():

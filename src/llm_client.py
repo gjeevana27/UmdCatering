@@ -169,3 +169,80 @@ Decide exactly one of:
 Respond ONLY as JSON: {{"decision": "...", "reasoning": "one sentence"}}"""
 
     return _call_gemini_judge(prompt)
+
+
+def run_tool_loop(system_prompt: str, user_message: str, tools: list, *,
+                   max_turns: int = 4) -> str:
+    """
+    Runs a manually-controlled Gemini function-calling loop -- used by
+    investigation_agent.py and (later) the read-only chatbot. Deliberately
+    NOT the google-genai SDK's automatic function calling (which executes
+    tool calls and loops internally, inside one generate_content() call):
+    that would give rate_guard no hook to check before each underlying
+    model call, breaking the guarantee every other Gemini call in this
+    project already has -- checked before every single attempt, not just
+    once per user action.
+
+    `tools`: plain Python callables, each with type hints and a docstring
+    -- both are used to build the tool's schema automatically
+    (FunctionDeclaration.from_callable()), so no hand-written JSON schema
+    is needed per tool. Each callable should return something JSON-
+    serializable (a string, list, or plain dict) -- not a dataclass or
+    other object the API can't serialize back to the model.
+
+    Each turn: rate_guard-checked, sent to Gemini; if the model calls a
+    tool, it's executed locally (never allowed to error the whole loop --
+    a failing tool call becomes a {"error": ...} result handed back to
+    the model, not a crash) and the result fed back for the next turn.
+    Stops as soon as the model responds with plain text instead of a tool
+    call, or after max_turns, whichever comes first -- the cap exists
+    specifically so a model that doesn't converge can't loop unboundedly.
+
+    Callers MUST check is_llm_available() first; this raises if it isn't.
+    """
+    if not is_llm_available():
+        raise RuntimeError(
+            "LLM not available -- check is_llm_available() before calling."
+        )
+    from google.genai import types
+
+    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    tool_by_name = {t.__name__: t for t in tools}
+    declarations = [types.FunctionDeclaration.from_callable(client=client, callable=t)
+                     for t in tools]
+    config = types.GenerateContentConfig(
+        tools=[types.Tool(function_declarations=declarations)],
+        system_instruction=system_prompt,
+    )
+    contents = [types.Content(role="user", parts=[types.Part.from_text(text=user_message)])]
+
+    for _ in range(max_turns):
+        try:
+            rate_guard.check_and_increment()
+        except rate_guard.RateLimitExceeded as e:
+            return f"(Daily Gemini call limit reached -- try again once quota resets: {e})"
+
+        try:
+            response = client.models.generate_content(model=MODEL, contents=contents,
+                                                        config=config)
+        except genai_errors.ServerError as e:
+            return f"(Gemini's servers are temporarily overloaded -- try again shortly: {e})"
+
+        if not response.function_calls:
+            return response.text or "(no response)"
+
+        contents.append(response.candidates[0].content)
+        for fc in response.function_calls:
+            fn = tool_by_name.get(fc.name)
+            if fn is None:
+                result = {"error": f"unknown tool '{fc.name}'"}
+            else:
+                try:
+                    result = fn(**fc.args)
+                except Exception as e:
+                    result = {"error": str(e)}
+            contents.append(types.Content(role="user", parts=[
+                types.Part.from_function_response(name=fc.name, response={"result": result})
+            ]))
+
+    return "(Didn't reach a final answer in time -- try again, or check manually.)"
