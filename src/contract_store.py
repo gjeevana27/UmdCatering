@@ -382,8 +382,20 @@ def _dish_key(dish_name: str) -> str:
     """Same case/whitespace folding diff_records() already uses for
     menu-item matching, so a note saved on 'Zaatar Grilled Chicken' is
     found again even if a later contract prints it differently
-    capitalized."""
-    return dish_name.strip().lower()
+    capitalized.
+
+    Also sanitizes for Firestore document-ID rules -- a document ID
+    can't contain a forward slash at all (Firestore reads it as a path
+    separator, not a literal character), which a real dish name/
+    description can easily contain ("Vegan/Gluten-Free", a qty note with
+    a fraction, etc.). Missing this crashed get_dish_allergen_note() /
+    save_dish_allergen_note() outright the first time a real dish name
+    with a "/" reached it -- and since that call happens unconditionally
+    on every script rerun (Streamlit re-executes the whole script on
+    every interaction, regardless of which tab is visually selected),
+    the crash blocked the entire app, not just the Allergen Scan tab."""
+    key = dish_name.strip().lower().replace("/", "-")
+    return key or "(unnamed dish)"
 
 
 def get_dish_allergen_note(client: firestore.Client, dish_name: str) -> list:
