@@ -903,13 +903,6 @@ def _render_event_allergen_box(source_filename: str, data: dict):
             st.warning("No dishes found on this document.")
             return
 
-        st.caption("⚠️ Ingredients below are Gemini's best-guess inference from each "
-                   "dish's name/description, not read from a real ingredients list — "
-                   "packing lists don't have one. Check off each allergen once you've "
-                   "confirmed it's actually in the dish. Anything you note below is "
-                   "remembered and flagged automatically the next time this exact "
-                   "dish shows up on a scan.")
-
         any_findings = False
         # (dish_name, existing_noted, newly_confirmed_categories) collected
         # across EVERY dish in this box, saved and rerun ONCE at the very
