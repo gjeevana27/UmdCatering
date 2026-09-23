@@ -672,42 +672,23 @@ def _fetch_all_notifications() -> list:
     return all_notifications
 
 
-def render_notifications():
-    all_notifications = _fetch_all_notifications()
-    # Fully-reviewed notifications (dismissed outright, or every individual
-    # change checked off) don't show in the feed at all.
-    notifications = [n for n in all_notifications if not n.get("reviewed", False)]
+def _render_division_notification_feed(division: str, all_notifications: list):
+    """One division's day-grouped notification feed, rendered inside its
+    own column -- Good Tidings and Goodies To Go each get half the page,
+    same side-by-side idea as the Allergen Scan tab's event boxes, except
+    the split here is permanent (by division), not paired row by row."""
+    st.subheader(division)
+
+    division_all = [n for n in all_notifications if n.get("division") == division]
+    notifications = [n for n in division_all if not n.get("reviewed", False)]
     notifications.sort(key=lambda n: n.get("created_at", ""), reverse=True)
 
-    unread_count = len(notifications)
-    header_text = f"🔔 Notifications ({unread_count})" if unread_count else "🔔 Notifications"
-    st.header(header_text)
-    st.caption("Every change detected when an uploaded contract was compared "
-               "against what's already on file — grouped by day, newest "
-               "first, across both divisions. Click a notification to see "
-               "exactly what changed.")
-
-    if client is None:
-        st.error("Firestore isn't configured — set FIRESTORE_CREDENTIALS_PATH "
-                  "(local) or the FIRESTORE_SERVICE_ACCOUNT_JSON secret (cloud). "
-                  "See README.")
-        return
-
     if not notifications:
-        if all_notifications:
-            st.success("All caught up — every notification has been reviewed.")
-            # Fires once per catch-up, not on every rerun of this same
-            # empty state (e.g. switching tabs and back) -- resets below
-            # as soon as a new notification shows up again.
-            if not st.session_state.get("confetti_shown", False):
-                st.session_state["confetti_shown"] = True
-                _fire_confetti()
+        if division_all:
+            st.success("All caught up.")
         else:
-            st.info("No notifications yet — one gets logged here the next time an "
-                     "uploaded contract differs from what's already on file.")
+            st.caption("No notifications yet.")
         return
-
-    st.session_state["confetti_shown"] = False
 
     # Group into (day_label, [(notification, parsed_datetime), ...])
     # buckets, in the same newest-first order as the flat list above --
@@ -731,10 +712,53 @@ def render_notifications():
             day_groups.append((day_label, [(n, dt)]))
 
     for day_label, day_notifications in day_groups:
-        st.subheader(day_label)
+        st.markdown(f"**{day_label}**")
         for n, dt in day_notifications:
             _render_notification_row(n, dt)
         st.divider()
+
+
+def render_notifications():
+    all_notifications = _fetch_all_notifications()
+    # Fully-reviewed notifications (dismissed outright, or every individual
+    # change checked off) don't show in the feed at all.
+    unread = [n for n in all_notifications if not n.get("reviewed", False)]
+
+    unread_count = len(unread)
+    header_text = f"🔔 Notifications ({unread_count})" if unread_count else "🔔 Notifications"
+    st.header(header_text)
+    st.caption("Every change detected when an uploaded contract was compared "
+               "against what's already on file — grouped by day, newest "
+               "first, Good Tidings and Goodies To Go side by side. Click a "
+               "notification to see exactly what changed.")
+
+    if client is None:
+        st.error("Firestore isn't configured — set FIRESTORE_CREDENTIALS_PATH "
+                  "(local) or the FIRESTORE_SERVICE_ACCOUNT_JSON secret (cloud). "
+                  "See README.")
+        return
+
+    if not unread:
+        if all_notifications:
+            st.success("All caught up — every notification has been reviewed.")
+            # Fires once per catch-up, not on every rerun of this same
+            # empty state (e.g. switching tabs and back) -- resets below
+            # as soon as a new notification shows up again.
+            if not st.session_state.get("confetti_shown", False):
+                st.session_state["confetti_shown"] = True
+                _fire_confetti()
+        else:
+            st.info("No notifications yet — one gets logged here the next time an "
+                     "uploaded contract differs from what's already on file.")
+        return
+
+    st.session_state["confetti_shown"] = False
+
+    col_gt, col_gtg = st.columns(2)
+    with col_gt:
+        _render_division_notification_feed("Good Tidings", all_notifications)
+    with col_gtg:
+        _render_division_notification_feed("Goodies To Go", all_notifications)
 
 
 def _render_allergen_results(dish_name: str, ingredients: list, results: dict):
