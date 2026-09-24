@@ -1160,14 +1160,21 @@ def render_allergen_scan():
 
 
 def _chat_bubble_html(text: str) -> str:
-    """Minimal markdown -> HTML for a chat bubble: **bold** and a run of
-    '- '/'* ' lines become a real <ul>. Not a full markdown renderer --
-    the model's answers are short facts/lists, never tables or code, so
-    this is deliberately just enough, not a new dependency for the rest.
-    Escapes the raw text FIRST, then inserts real tags for the bits WE
-    add, so nothing in the model's (or the chef's) own text is ever
-    interpreted as markup."""
-    lines = [html.escape(line) for line in text.strip().split("\n")]
+    """Minimal markdown -> HTML for a chat bubble: **bold**, a run of
+    '- '/'* ' lines becoming a real <ul>, an indented line right under a
+    bullet nesting INSIDE that <li> instead of becoming its own
+    disconnected paragraph (a menu item's "  Notes: ..." line stays
+    visually tied to the item it describes), and a lone "---" line
+    becoming a real <hr> (multiple events answered in one reply get a
+    divider between them instead of running together into one
+    undifferentiated block -- see the system prompt's instruction to
+    emit "---" between events). Not a full markdown renderer -- the
+    model's answers are short facts/lists, never tables or code, so
+    this is deliberately just enough, not a new dependency for the
+    rest. Escapes the raw text FIRST, then inserts real tags for the
+    bits WE add, so nothing in the model's (or the chef's) own text is
+    ever interpreted as markup."""
+    lines = [html.escape(line) for line in text.strip("\n").split("\n")]
     out, bullet_buffer = [], []
 
     def _flush_bullets():
@@ -1178,8 +1185,16 @@ def _chat_bubble_html(text: str) -> str:
 
     for line in lines:
         stripped = line.strip()
-        if stripped.startswith("- ") or stripped.startswith("* "):
+        is_indented_continuation = bool(line[:1].isspace() and stripped)
+        if stripped in ("---", "***", "___"):
+            _flush_bullets()
+            out.append("<hr style='border:none; border-top:1px solid var(--line); "
+                        "margin:10px 0;'>")
+        elif stripped.startswith("- ") or stripped.startswith("* "):
             bullet_buffer.append(stripped[2:])
+        elif is_indented_continuation and bullet_buffer:
+            bullet_buffer[-1] += (f"<br><span style='font-size:0.9em; "
+                                   f"color:var(--ink-soft);'>{stripped}</span>")
         else:
             _flush_bullets()
             if stripped:

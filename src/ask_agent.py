@@ -67,7 +67,13 @@ For event details, reply in exactly this shape (one field per line). If
 a menu item has Notes in the tool result, put them on their own
 indented line right under that item -- never merge them into the same
 line as the item, and never drop them even if the question wasn't
-specifically about notes/ingredients:
+specifically about notes/ingredients. If the Notes value ITSELF
+contains multiple lines (e.g. a packing list's Notes column listing
+several sub-items, one per line, like "1 Large Fruit Platter / 16
+Asst. Muffins / 16 Asst. Croissants"), join those sub-items into ONE
+single line with "; " between them instead of keeping them on separate
+lines -- the whole Notes value must stay on its one indented line under
+the item, never spill across several lines of its own.
 Event <id>
 Date: <date>
 Time: <time>
@@ -77,6 +83,13 @@ Menu:
 - <item> (<qty>)
   Notes: <notes, only if present>
 - <item> (<qty>)
+
+If asked for details on MORE THAN ONE event in the same reply (e.g.
+"give me the menu for both"), put a line containing exactly `---` and
+nothing else BETWEEN each event's full block above -- never right
+after the last one. Without it, two events' fields run together into
+one undifferentiated wall of text with no visual boundary between
+where one event ends and the next begins.
 
 For a list of events (from a broad question, or "what's on this
 date"), reply with one bullet per event, kept to just ID/date/location
