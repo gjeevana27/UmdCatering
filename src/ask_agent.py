@@ -64,16 +64,13 @@ results pre-structured, one field/item per line -- KEEP that structure
 in your answer instead of compressing it into a paragraph. Specifically:
 
 For event details, reply in exactly this shape (one field per line). If
-a menu item has Notes in the tool result, put them on their own
-indented line right under that item -- never merge them into the same
-line as the item, and never drop them even if the question wasn't
-specifically about notes/ingredients. If the Notes value ITSELF
-contains multiple lines (e.g. a packing list's Notes column listing
-several sub-items, one per line, like "1 Large Fruit Platter / 16
-Asst. Muffins / 16 Asst. Croissants"), join those sub-items into ONE
-single line with "; " between them instead of keeping them on separate
-lines -- the whole Notes value must stay on its one indented line under
-the item, never spill across several lines of its own.
+a menu item has Notes in the tool result (already flattened to a
+single line for you, semicolon-separated, even if the source document
+listed several sub-items), put that Notes line on its own indented
+line right under the item -- never merge it into the same line as the
+item, never split it back across multiple lines of its own, and never
+drop it even if the question wasn't specifically about notes/
+ingredients:
 Event <id>
 Date: <date>
 Time: <time>
@@ -141,6 +138,22 @@ def _format_time(iso_timestamp: str) -> str:
         return iso_timestamp or "unknown time"
 
 
+def _flatten_notes(text: str) -> str:
+    """A menu item's stored description/Notes can itself contain literal
+    newlines -- a Goodies To Go packing list's Notes column lists several
+    sub-items one per line (e.g. "1 Large Fruit Platter\\n16 Asst.
+    Muffins\\n..."). Left as-is in a tool result, that breaks the chat
+    bubble's "Notes: ... stays on ONE indented line under its item"
+    rendering the instant the model just copies the raw text through --
+    which it reliably does for a short single-line note but not always
+    for a long multi-line one buried deep in a combined multi-event
+    reply (a prompt instruction asking the model to do this itself was
+    tried first and was inconsistent). Flattening it here, before the
+    text ever reaches the model, makes the formatting deterministic
+    instead of depending on the model remembering to transform it."""
+    return "; ".join(line.strip() for line in text.splitlines() if line.strip())
+
+
 def _build_tools(client, division: str) -> list:
     def lookup_event(event_id: str, event_date: str) -> str:
         """Looks up the exact stored contract record for this event_id AND event_date together. Returns one field per line, menu items as a bulleted list with quantity, each followed by its Notes on an indented line if the document had any (a Goodies To Go packing list's "Notes" column, or a Good Tidings description line -- same field, printed underneath the item's name on the source document) -- pass this structure through as-is, don't compress it into a paragraph, and don't drop the Notes lines."""
@@ -148,7 +161,8 @@ def _build_tools(client, division: str) -> list:
         if record is None:
             return "no record on file for that exact event_id and event_date combination"
         menu_lines = "\n".join(
-            f"- {i.recipe_name} ({i.qty_unit})" + (f"\n  Notes: {i.description}" if i.description else "")
+            f"- {i.recipe_name} ({i.qty_unit})"
+            + (f"\n  Notes: {_flatten_notes(i.description)}" if i.description else "")
             for i in record.menu_items
         ) or "- (no menu items on file)"
         return (
