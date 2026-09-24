@@ -97,6 +97,19 @@ a one-line urgency call.
   callable tool it might choose to use -- a plain check that runs
   unconditionally on every edit is more reliable than hoping a model
   reliably decides to call it.
+- **A number changing INSIDE the notes/description text is also
+  rule-decided, ahead of the allergen check and the LLM.** A Goodies To
+  Go packing list's Notes column can carry its own quantities separate
+  from the item's own qty/unit field (e.g. "16 Asst. Muffins" -> "20
+  Asst. Muffins" -- the item's own qty/unit column never changes, only
+  a count buried in free text). `_decide_menu_change()` compares the raw
+  SET of numbers found in the old vs. new description text; any
+  difference escalates by rule, worded the same as a qty/unit change
+  ("a prep-volume fact"). A description edit that reorders/rewords text
+  around the SAME numbers (no quantity actually changed) correctly does
+  NOT trip this -- covered by an adversarial eval case
+  (`menu_notes_reworded_same_numbers`) specifically to guard against a
+  future version of this rule firing on wording alone.
 - The agent also doesn't fully trust its own upstream reading: when
   extraction confidence was low, every "worth a glance" gets promoted to
   "act on this" instead.

@@ -569,6 +569,26 @@
       "new_description": "Grilled chicken with tahini",
       "expected_decision": "escalate",
       "why": "adversarial: one allergen category swapped for a different one in the same edit (tree_nuts removed via 'walnuts', sesame added via the hidden-carrier term 'tahini') -- exercises both the added and removed branches of the reasoning text in a single case"
+    },
+    {
+      "id": "menu_notes_quantity_change_rule",
+      "type": "menu",
+      "change_type": "changed",
+      "recipe_name": "The Annapolitan-Fruit Tray",
+      "old_description": "1 Large Fruit Platter, 16 Asst. Muffins, 16 Asst. Croissants, 17 Asst. Scones",
+      "new_description": "1 Large Fruit Platter, 20 Asst. Muffins, 16 Asst. Croissants, 17 Asst. Scones",
+      "expected_decision": "escalate",
+      "why": "a quantity hiding INSIDE the free-text Notes column (16 -> 20 muffins) is a real prep-volume fact even though it never touches the item's own qty_unit field -- decided by the new numbers-in-notes rule, not the LLM judge, same as this project's real Goodies To Go packing-list format"
+    },
+    {
+      "id": "menu_notes_reworded_same_numbers",
+      "type": "menu",
+      "change_type": "changed",
+      "recipe_name": "Dinner Rolls Basket",
+      "old_description": "3 dozen dinner rolls",
+      "new_description": "3 dozen rolls (dinner)",
+      "expected_decision": "review",
+      "why": "adversarial: the numbers-in-notes rule must NOT fire here -- '3' appears in both, nothing about the actual quantity changed, only wording -- so this correctly falls through to the LLM-judgment path (and, with no GEMINI_API_KEY in this eval's environment, to the safe review-not-escalate default), same as any other pure wording edit"
     }
   ]
 }

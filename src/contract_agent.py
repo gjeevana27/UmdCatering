@@ -29,6 +29,7 @@ to ESCALATE -- a "probably not urgent" conclusion drawn from a shaky
 reading isn't one this system is willing to sit on quietly.
 """
 
+import re
 from dataclasses import dataclass
 
 import allergen_reference
@@ -163,6 +164,27 @@ def _decide_menu_change(change) -> ChangeDecision:
             change, DECISION_ESCALATE,
             "Quantity or unit changed on this item -- escalated by rule "
             "rather than assumed routine.", made_by="rule",
+        )
+
+    # A number appearing INSIDE the notes/description text changing (e.g.
+    # a Goodies To Go packing list's Notes column going from "16 Asst.
+    # Muffins" to "20 Asst. Muffins") is a real prep-quantity fact hiding
+    # in free text, not just a wording edit -- the same operational
+    # weight as the qty/unit field itself, so it's escalated the same
+    # way, by rule, ahead of the LLM path. Compared as the raw SET of
+    # numbers found in each string, not position/order -- a description
+    # that's merely been reflowed or reworded around the same numbers
+    # (no actual quantity changed) must NOT trip this, only a genuine
+    # difference in which numbers appear at all.
+    old_numbers = set(re.findall(r"\d+(?:\.\d+)?", change.old_description))
+    new_numbers = set(re.findall(r"\d+(?:\.\d+)?", change.new_description))
+    if old_numbers != new_numbers:
+        return ChangeDecision(
+            change, DECISION_ESCALATE,
+            f"A quantity inside this item's notes changed ('{change.old_description}' "
+            f"-> '{change.new_description}') -- escalated by rule as a prep-volume "
+            f"fact, same as a qty/unit field change.",
+            made_by="rule",
         )
 
     # Ground the description judgment against the kitchen's own allergen
