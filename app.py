@@ -1382,8 +1382,8 @@ def _render_ask_fab():
     st.markdown("""
 <style>
 div.st-key-ask_fab{position:fixed;bottom:24px;right:24px;z-index:9999;width:auto;}
-div.st-key-ask_fab button{border-radius:50%;width:56px;height:56px;
-font-size:1.5rem;line-height:1;box-shadow:0 2px 10px rgba(0,0,0,0.35);
+div.st-key-ask_fab button{border-radius:50%;width:68px;height:68px;
+font-size:1.85rem;line-height:1;box-shadow:0 2px 10px rgba(0,0,0,0.35);
 padding:0;}
 /* A fly buzzing near the cookie -- purely decorative, pointer-events:
    none so it never intercepts a click meant for the real button
@@ -1406,7 +1406,7 @@ padding:0;}
    against the actual emoji glyph), so it still reads as flying
    toward where it's headed, just changing direction more abruptly
    than a smooth orbit would. */
-.ask-buzz{position:fixed; bottom:85px; right:22px; z-index:9998;
+.ask-buzz{position:fixed; bottom:97px; right:28px; z-index:9998;
 display:flex; flex-direction:column; align-items:flex-end; gap:4px;
 pointer-events:none; animation:ask-buzz-move 4s ease-in-out infinite;}
 @keyframes ask-buzz-move{
