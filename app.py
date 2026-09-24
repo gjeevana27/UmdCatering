@@ -1252,11 +1252,13 @@ def _render_ask_content():
 
     division = st.radio("Division", store.DIVISIONS, horizontal=True, key="ask_division")
     history_key = f"ask_history_{division}"
+    pending_delete_key = f"ask_pending_delete_{division}"
     if history_key not in st.session_state:
         st.session_state[history_key] = []
 
     if st.session_state[history_key] and st.button("Clear conversation", key="ask_clear"):
         st.session_state[history_key] = []
+        st.session_state.pop(pending_delete_key, None)
         st.rerun(scope="fragment")  # same reasoning as below -- a bare rerun here closed the dialog too
 
     # History renders FIRST, in plain top-to-bottom document order --
@@ -1272,8 +1274,58 @@ def _render_ask_content():
     for msg in st.session_state[history_key]:
         _render_chat_bubble(msg["role"], msg["content"])
 
+    # Event cancellation: Crumbly can only ever PROPOSE a deletion (by
+    # emitting ask_agent.CONFIRM_DELETE_RE's marker line once it's
+    # confirmed one exact event via its own read-only tools) -- this is
+    # the ONLY place a delete_record() call for this feature actually
+    # happens, gated on a real button click, never on anything the model
+    # says in chat. Rendered right after history (same "never inline
+    # after chat_input" reasoning as the messages above), so it appears
+    # as the natural next thing after Crumbly's proposal, still above
+    # the input.
+    pending = st.session_state.get(pending_delete_key)
+    if pending:
+        with st.container(border=True):
+            st.warning(f"⚠️ Delete **Event {pending['event_id']}** — "
+                       f"**{pending['event_date']}** from {division}? This permanently "
+                       f"removes it from Firestore and cannot be undone.")
+            col_yes, col_no = st.columns(2)
+            confirm_clicked = col_yes.button("Yes, delete permanently",
+                                              key=f"ask_delete_confirm_{division}",
+                                              use_container_width=True)
+            cancel_clicked = col_no.button("Cancel", key=f"ask_delete_cancel_{division}",
+                                            use_container_width=True)
+            if confirm_clicked:
+                # Re-looked-up fresh right here, not trusting the
+                # snapshot from when Crumbly proposed it -- defense in
+                # depth against anything changing between the proposal
+                # and this click (another upload landing in between,
+                # the conversation sitting open a while, etc.).
+                record = store.lookup(client, division, pending["event_id"], pending["event_date"])
+                if record is None:
+                    result_msg = (f"Event {pending['event_id']} on {pending['event_date']} "
+                                   f"is no longer on file -- nothing to delete.")
+                else:
+                    store.log_deleted_event(client, record, source="ask_chatbot")
+                    store.delete_record(client, division, pending["event_id"], pending["event_date"])
+                    result_msg = (f"✅ Event {pending['event_id']} ({pending['event_date']}) "
+                                   f"has been permanently deleted from {division}.")
+                st.session_state[history_key].append({"role": "assistant", "content": result_msg})
+                st.session_state.pop(pending_delete_key, None)
+                st.rerun(scope="fragment")
+            elif cancel_clicked:
+                st.session_state[history_key].append(
+                    {"role": "assistant", "content": "Okay, not deleted."})
+                st.session_state.pop(pending_delete_key, None)
+                st.rerun(scope="fragment")
+
     question = st.chat_input(f"Ask Crumbly about {division}...")
     if question:
+        # A new question means the chef moved on without confirming or
+        # cancelling a prior deletion proposal -- treat it as abandoned
+        # rather than leaving it to linger and possibly get confirmed
+        # later against a conversation that's no longer about it.
+        st.session_state.pop(pending_delete_key, None)
         prior_turns = list(st.session_state[history_key])  # BEFORE appending this
         # question -- ask_agent.ask()'s history param is prior COMPLETED
         # turns only, not the current one (that's passed separately).
@@ -1283,6 +1335,16 @@ def _render_ask_content():
                 answer = ask_agent.ask(client, division, question, history=prior_turns)
             except Exception as e:
                 answer = f"Something went wrong: {e}"
+        delete_match = ask_agent.CONFIRM_DELETE_RE.search(answer)
+        if delete_match:
+            # Strip the protocol line out of what's actually shown in
+            # the chat bubble -- it's a signal for this code, not
+            # something the chef should ever see verbatim.
+            answer = ask_agent.CONFIRM_DELETE_RE.sub("", answer).strip()
+            st.session_state[pending_delete_key] = {
+                "event_id": delete_match.group("event_id").strip(),
+                "event_date": delete_match.group("event_date").strip(),
+            }
         st.session_state[history_key].append({"role": "assistant", "content": answer})
         # scope="fragment", NOT a bare st.rerun() -- st.dialog inherits
         # st.fragment behavior, and Streamlit's own docs are explicit that

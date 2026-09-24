@@ -263,8 +263,43 @@ def delete_record(client: firestore.Client, division: str, event_id: str, event_
     rescheduled: the old date's record is migrated away (deleted) once its
     contents have been folded into the new date's record via save(),
     keeping one active record per event lineage rather than leaving a
-    stale orphan behind."""
+    stale orphan behind. Also used for a chef-confirmed cancellation via
+    the Ask chatbot -- see log_deleted_event() below, always called
+    first in that path."""
     _collection(client, division).document(_doc_id(event_id, event_date)).delete()
+
+
+_DELETION_LOG_COLLECTION = "deleted_events_log"
+# Global, not per-division -- a small audit trail, never queried by the
+# app itself, so there's no reason to split it the way live contract
+# data is split.
+
+
+def log_deleted_event(client: firestore.Client, record: ContractRecord, source: str) -> None:
+    """Writes a snapshot of a record right before it's permanently
+    deleted. Firestore deletes on this project have no undo -- no
+    Point-in-Time-Recovery access on this plan, confirmed the hard way
+    after a real data-loss incident during a migration script earlier
+    in this project's life (see docs/DESIGN.md). This is NOT a restore
+    mechanism -- nothing here can bring a deleted record back -- it's a
+    trace of what existed and when it was removed, so an accidental or
+    disputed deletion can at least be investigated after the fact
+    instead of leaving zero record it ever happened. Always call this
+    BEFORE delete_record(), so even a delete that fails partway still
+    leaves a trace of what was about to be removed. `source` identifies
+    what triggered the deletion (e.g. "ask_chatbot")."""
+    client.collection(_DELETION_LOG_COLLECTION).add({
+        "event_id": record.event_id,
+        "event_date": record.event_date,
+        "division": record.division,
+        "location": record.location,
+        "event_type": record.event_type,
+        "guest_count": record.guest_count,
+        "source_filename": record.source_filename,
+        "menu_item_count": len(record.menu_items),
+        "deleted_at": datetime.now(timezone.utc).isoformat(),
+        "source": source,
+    })
 
 
 _NOTIFICATION_COLLECTION_NAMES = {

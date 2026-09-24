@@ -46,9 +46,13 @@ Google Cloud Firestore · python-dateutil
   inference, never as verified), confirmed findings persisted to a
   growing per-dish allergen reference.
 - **Ask** — a floating chat button (bottom-right, every tab) opens a
-  read-only chatbot over stored events and change history as a popup,
-  scoped to one division at a time; can't write or change anything, only
-  look things up.
+  chatbot over stored events and change history as a popup, scoped to
+  one division at a time. Read-only for every question — it has no
+  write-capable tool at all. The one exception, event cancellation, is
+  handled the same way: the model can only identify and propose which
+  event to delete; the actual Firestore delete only happens after the
+  chef clicks a real confirm button, and is logged to an audit trail
+  first (see `docs/DESIGN.md`).
 - **Guardrails** — PII cleanup, a daily API call-count circuit breaker,
   and output validation on every extraction (see below).
 - **3 automated eval harnesses** covering the decision layer, the LLM

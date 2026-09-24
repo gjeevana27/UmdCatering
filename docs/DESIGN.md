@@ -220,6 +220,55 @@ already are instead of needing to navigate away first.
   show real events (ID/date/location) for a broad question instead of
   explaining what it theoretically could look up. Verified live against
   real Firestore data for both divisions.
+- **Event cancellation: Crumbly can PROPOSE a deletion, but only
+  `app.py` can ever EXECUTE one.** This is the first (and only) feature
+  where the Ask chatbot touches destructive, irreversible state, so the
+  "no write-capable tool exists at all" boundary stated at the top of
+  `ask_agent.py` is preserved literally -- there is still no delete
+  tool the model can call. Instead:
+  - The model's only job is to pin down one exact `event_id` +
+    `event_date` via the SAME read-only tools as any other question
+    (`lookup_event`, `find_other_dates`, `events_on_date`), asking the
+    chef follow-up questions on anything less specific than that. It is
+    explicitly told NEVER to silently resolve a missing date itself
+    just because only one happens to exist on file for that event_id
+    -- deletion is the one place "I could figure this out" isn't
+    treated as the same thing as "the chef was specific" (see the
+    earlier, looser convenience-resolution behavior everywhere else in
+    this file, which is intentionally NOT extended here).
+  - Once (and only once) it's confirmed one exact match, it ends its
+    reply with a plain-text signal line, `CONFIRM_DELETE: event_id=<id>
+    | event_date=<date>` (`ask_agent.CONFIRM_DELETE_RE`) -- the model
+    is told this line does nothing by itself, and that neither it nor
+    the chef typing "yes" in chat afterward can delete anything.
+  - `app.py`'s `_render_ask_content()` regex-matches that line out of
+    the reply (stripped before the chat bubble ever shows it), and
+    renders a real confirm/cancel button pair -- the actual
+    `store.delete_record()` call only happens inside the "Yes, delete
+    permanently" button's own click handler, re-looking-up the record
+    fresh at that moment (not trusting the snapshot from when it was
+    proposed) as defense in depth against anything changing in
+    between. A new question, or "Clear conversation", abandons any
+    pending proposal rather than leaving it to be confirmed later
+    against an unrelated part of the conversation.
+  - `contract_store.log_deleted_event()` is always called immediately
+    before `delete_record()`, writing a snapshot (event ID, date,
+    division, location, guest count, timestamp, source) to a small
+    `deleted_events_log` collection. This is NOT a restore mechanism --
+    Firestore deletes here have no undo, confirmed the hard way earlier
+    in this project's life (see the data-loss incident above) -- it's
+    a trace of what existed and when it was removed, so a disputed or
+    accidental deletion can at least be investigated after the fact.
+  - Verified live end-to-end against a throwaway test record (never
+    against real production data): Crumbly correctly found an exact
+    match and emitted the signal line for a fully-specified request;
+    correctly asked a clarifying question instead of auto-resolving a
+    single-date match when the chef gave an event ID with no date;
+    correctly proceeded only after the chef's own follow-up confirmed
+    which event; the confirm button's fresh re-lookup correctly
+    resolved a reworded date string back to the same document; and the
+    audit log entry was written with the expected fields before the
+    record was removed.
 - **The floating button is a real `st.button()`, not an injected HTML
   element.** Positioned via CSS targeting the `st-key-<key>` class
   Streamlit adds to a container given a `key` (a stable, documented

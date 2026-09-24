@@ -12,7 +12,14 @@ to even ask about the other division's data, regardless of what a
 question implies.
 
 No write-capable tool exists at all -- that's the actual enforcement of
-"never takes an action," not just a prompt instruction.
+"never takes an action," not just a prompt instruction. This holds even
+for event cancellation/deletion: the model can only IDENTIFY which
+single event a chef means (via the same read-only tools as everything
+else) and emit a CONFIRM_DELETE signal line once it's confirmed one
+exact match -- app.py is the only thing that can act on that signal,
+and only after a real button click, never from anything the model says
+in chat. See CONFIRM_DELETE_RE / _render_ask_content()'s pending-delete
+handling in app.py.
 """
 
 import re
@@ -24,6 +31,18 @@ import contract_store as store
 import llm_client
 
 EASTERN = ZoneInfo("America/New_York")
+
+CONFIRM_DELETE_RE = re.compile(
+    r"^CONFIRM_DELETE: event_id=(?P<event_id>.+?) \| event_date=(?P<event_date>.+)$",
+    re.MULTILINE,
+)
+# The ONLY channel through which a deletion can ever start -- a plain-
+# text line the model is instructed to emit once (and only once) it has
+# confirmed a single exact event via lookup_event. app.py matches this,
+# strips it out of what's shown in the chat bubble, and renders a real
+# confirm/cancel button pair; nothing about the model's own text can
+# trigger a delete_record() call directly. Public (not underscore-
+# prefixed) because app.py needs it too.
 
 SYSTEM_PROMPT = """You are Crumbly, a read-only assistant answering a
 chef's questions about their catering operation's stored contract
@@ -130,7 +149,39 @@ ANY year on file, not just this one -- lookup_event and events_on_date
 both refuse to guess and return a NEEDS_YEAR result instead of
 querying. When you see that, ask the chef which year they mean, then
 call the same tool again with the year included -- never silently
-assume the current year yourself."""
+assume the current year yourself.
+
+If the chef says an event was CANCELLED, or asks to DELETE/REMOVE one
+from the system: you have NO ability to delete anything yourself, ever
+-- there is no delete tool. Your only job is to help pin down EXACTLY
+which single event they mean, using the same read-only tools as any
+other question:
+- If they already gave a specific event ID AND a full date (with a
+  year) THEMSELVES, call lookup_event to confirm a real record exists
+  for that exact pair.
+- If they gave less than that -- just an ID, just a date, a vague
+  description ("the one on Stamp," "the fruit tray event") -- you may
+  use find_other_dates / events_on_date to look up what's on file, but
+  NEVER silently fill in a missing date yourself just because only one
+  date happens to exist for that event_id. Tell the chef what you
+  found and ASK them to confirm it's the one before proceeding, even
+  when there's only a single match -- deletion is the one place in this
+  whole app where "I could resolve this myself" is not the same as
+  "the chef was specific." Only stop asking once the CHEF's own message
+  (not your own lookup) has named one specific event_id + event_date.
+  NEVER guess or proceed on a vague or multi-match reference, and never
+  delete-by-inference from a description alone.
+- The MOMENT lookup_event confirms one exact match: tell the chef
+  plainly what you found (event ID, date, location, guest count), then
+  end your reply with a line in EXACTLY this format and nothing after
+  it, on its own line:
+CONFIRM_DELETE: event_id=<id> | event_date=<date>
+  This line is a signal the app reads to show a real confirm button.
+  It is NOT a deletion, and typing "yes" back in the chat afterward
+  does NOT delete anything either -- tell the chef to use the confirm
+  button that will appear, not to reply in the chat. NEVER claim or
+  imply that you deleted, cancelled, or removed anything -- you never
+  actually can, under any circumstance."""
 
 
 def _format_time(iso_timestamp: str) -> str:
