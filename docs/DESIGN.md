@@ -220,6 +220,30 @@ already are instead of needing to navigate away first.
   show real events (ID/date/location) for a broad question instead of
   explaining what it theoretically could look up. Verified live against
   real Firestore data for both divisions.
+- **A year-less date ("May 5th") is only a problem when it's actually
+  ambiguous.** `dateutil_parser.parse(fuzzy=True)` (used throughout
+  `contract_store.py`) silently defaults a missing year to today's
+  year rather than raising, so nothing in the pipeline ever really
+  rejected a year-less date -- it just silently matched this year's
+  events. `events_on_date` first asked the chef for a year on EVERY
+  year-less date, whether or not more than one year was even possible
+  -- correct in the worst case, but needless friction reported live:
+  asking "what are the events 5 may" got a year question even though
+  this project's real data only has one May 5th on file. Replaced with
+  `contract_store.find_by_day_month()` (scans by calendar day/month,
+  ignoring year) -- `events_on_date` now resolves directly when
+  matches exist under at most one year, and only returns an
+  `AMBIGUOUS_YEARS` result (listing which years) when the same
+  day/month genuinely has events on file under more than one.
+  `lookup_event` stays strict (always requires a full year) since it's
+  pairing a date with one specific `event_id` rather than searching
+  broadly, and the system prompt already routes that case through
+  `find_other_dates` first, which surfaces full dates anyway. Verified
+  live: a real single-year date now resolves directly with no year
+  question; a throwaway test record deliberately placed on the same
+  day/month under a different year correctly produced "There are
+  events on file for May 5th in both 2025 and 2026. Which year are you
+  looking for?" instead of resolving silently.
 - **Event cancellation: Crumbly can PROPOSE a deletion, but only
   `app.py` can ever EXECUTE one.** This is the first (and only) feature
   where the Ask chatbot touches destructive, irreversible state, so the

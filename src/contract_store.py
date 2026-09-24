@@ -228,6 +228,30 @@ def find_by_date(client: firestore.Client, division: str, event_date: str) -> li
             if dates_match(d.to_dict().get("event_date", ""), event_date)]
 
 
+def find_by_day_month(client: firestore.Client, division: str, month: int, day: int) -> list:
+    """Every stored record in this division whose event_date falls on
+    this calendar day/month, IGNORING year -- lets a year-less date
+    ("May 5th") be resolved by checking whether it's ACTUALLY ambiguous
+    (events on file under more than one year for that day/month), rather
+    than always demanding a year up front regardless of whether more
+    than one year is even possible on this small a dataset. Same
+    full-collection-scan tradeoff as find_by_date() above. A record
+    whose event_date fails to parse at all is silently skipped, not
+    raised -- an unparsable date can't be compared by day/month either
+    way."""
+    docs = _collection(client, division).stream()
+    matches = []
+    for d in docs:
+        data = d.to_dict()
+        try:
+            parsed = dateutil_parser.parse(data.get("event_date", ""), fuzzy=True).date()
+        except (ValueError, OverflowError):
+            continue
+        if parsed.month == month and parsed.day == day:
+            matches.append(_record_from_dict(data))
+    return matches
+
+
 def list_events(client: firestore.Client, division: str, limit: int = 30) -> tuple:
     """Every stored record in this division, sorted by calendar date
     (soonest/oldest first, via the same _normalize_date_key() used for

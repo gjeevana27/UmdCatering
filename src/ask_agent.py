@@ -26,6 +26,8 @@ import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from dateutil import parser as dateutil_parser
+
 import allergen_reference
 import contract_store as store
 import llm_client
@@ -151,12 +153,17 @@ two different dates under one event_id as the same event. So:
   that to the chef directly and ask which date, rather than picking one
   yourself or silently merging the history.
 
-A date with no year given ("May 5th," "5/5") could match events from
-ANY year on file, not just this one -- lookup_event and events_on_date
-both refuse to guess and return a NEEDS_YEAR result instead of
-querying. When you see that, ask the chef which year they mean, then
-call the same tool again with the year included -- never silently
-assume the current year yourself.
+A date with no year given ("May 5th," "5/5") is not automatically
+ambiguous -- it only matters if events actually exist on file under
+more than one year for that day/month. events_on_date checks this
+itself and resolves directly when there's nothing to disambiguate
+(only call it with the date exactly as the chef gave it, year or not
+-- don't add a year yourself). If it instead comes back
+AMBIGUOUS_YEARS, relay the years it lists to the chef and ask which
+one, then call it again with that year included. lookup_event is
+stricter -- it always needs a full year, since it's pairing a date
+with one specific event_id rather than searching broadly; if it
+returns NEEDS_YEAR, ask which year the same way.
 
 If the chef says an event was CANCELLED, or asks to DELETE/REMOVE one
 from the system: you have NO ability to delete anything yourself, ever
@@ -269,11 +276,23 @@ def _build_tools(client, division: str) -> list:
                           for r in others)
 
     def events_on_date(event_date: str) -> str:
-        """Lists every stored event on this calendar date, regardless of event_id. event_date MUST include a 4-digit year (e.g. "May 5, 2026", not "May 5th" or "5/5") -- if the chef gave a date with no year, ask which year they mean before calling this; a year-less date could match events from any year on file, not just the current one."""
+        """Lists every stored event on this calendar date, regardless of event_id. event_date does NOT need a year up front -- a year-less date ("May 5th") is resolved by checking whether that day/month is actually ambiguous across years on file. If events exist under more than one year for that day/month, this returns an AMBIGUOUS_YEARS result listing which years -- ask the chef which one, then call this again with the year included. If it's a single year (or no matches at all), this resolves and answers directly, no year needed from the chef."""
         if _needs_year(event_date):
-            return ("NEEDS_YEAR: this date has no year given -- ask the chef which year "
-                    "they mean, then call this tool again with the year included.")
-        records = store.find_by_date(client, division, event_date)
+            try:
+                parsed = dateutil_parser.parse(event_date, fuzzy=True)
+            except (ValueError, OverflowError):
+                return "couldn't understand that date -- ask the chef to rephrase it"
+            candidates = store.find_by_day_month(client, division, parsed.month, parsed.day)
+            distinct_years = {dateutil_parser.parse(r.event_date, fuzzy=True).year
+                               for r in candidates}
+            if len(distinct_years) > 1:
+                return (f"AMBIGUOUS_YEARS: events on file for this day/month under more than "
+                        f"one year ({', '.join(str(y) for y in sorted(distinct_years))}) -- ask "
+                        f"the chef which year they mean, then call this tool again with the "
+                        f"year included.")
+            records = candidates
+        else:
+            records = store.find_by_date(client, division, event_date)
         if not records:
             return "no stored events found on that date"
         return "; ".join(f"Event {r.event_id} at {r.location} ({r.guest_count} guests)"
