@@ -44,7 +44,11 @@ The lookup_event and notifications_for_event tools already return their
 results pre-structured, one field/item per line -- KEEP that structure
 in your answer instead of compressing it into a paragraph. Specifically:
 
-For event details, reply in exactly this shape (one field per line):
+For event details, reply in exactly this shape (one field per line). If
+a menu item has Notes in the tool result, put them on their own
+indented line right under that item -- never merge them into the same
+line as the item, and never drop them even if the question wasn't
+specifically about notes/ingredients:
 Event <id>
 Date: <date>
 Time: <time>
@@ -52,6 +56,7 @@ Location: <location>
 Guest count: <count>
 Menu:
 - <item> (<qty>)
+  Notes: <notes, only if present>
 - <item> (<qty>)
 
 For change history, reply with one bolded timestamp per notification,
@@ -90,12 +95,14 @@ def _format_time(iso_timestamp: str) -> str:
 
 def _build_tools(client, division: str) -> list:
     def lookup_event(event_id: str, event_date: str) -> str:
-        """Looks up the exact stored contract record for this event_id AND event_date together. Returns one field per line, menu items as a bulleted list with quantity -- pass this structure through as-is, don't compress it into a paragraph."""
+        """Looks up the exact stored contract record for this event_id AND event_date together. Returns one field per line, menu items as a bulleted list with quantity, each followed by its Notes on an indented line if the document had any (a Goodies To Go packing list's "Notes" column, or a Good Tidings description line -- same field, printed underneath the item's name on the source document) -- pass this structure through as-is, don't compress it into a paragraph, and don't drop the Notes lines."""
         record = store.lookup(client, division, event_id, event_date)
         if record is None:
             return "no record on file for that exact event_id and event_date combination"
-        menu_lines = "\n".join(f"- {i.recipe_name} ({i.qty_unit})" for i in record.menu_items) \
-            or "- (no menu items on file)"
+        menu_lines = "\n".join(
+            f"- {i.recipe_name} ({i.qty_unit})" + (f"\n  Notes: {i.description}" if i.description else "")
+            for i in record.menu_items
+        ) or "- (no menu items on file)"
         return (
             f"Event {record.event_id}\n"
             f"Date: {record.event_date}\n"

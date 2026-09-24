@@ -248,6 +248,23 @@ def _change_label(c) -> tuple:
     return title, subtext, "menu-changed"
 
 
+def _render_menu_items_structured(menu_items: list):
+    """Every menu item's recipe name/qty PLUS whatever's printed
+    underneath it (the "Notes" column on a Goodies To Go packing list,
+    or a description line on a Good Tidings one -- same `description`
+    field either way, see contract_store.MenuLineItem) -- one block per
+    item, notes on their own indented line, not folded into a single
+    run-on paragraph. Used everywhere a full menu gets shown (the
+    upload batch result, a resolved pending-confirmation, the Ask
+    chatbot's event lookup), so a dish's real notes are never a click
+    or a diff away from where the chef is already looking."""
+    for item in menu_items:
+        qty = f" ({item.qty_unit})" if item.qty_unit else ""
+        st.markdown(f"**{item.recipe_name}**{qty}")
+        if item.description:
+            st.caption(item.description.replace("\n", "  \n"))
+
+
 def _serialize_decisions(result: dict) -> list:
     """Flattens a contract_agent.evaluate_changes() result into plain,
     Firestore-storable dicts for save_notification()."""
@@ -299,7 +316,8 @@ def _evaluate_and_store(division: str, data: dict, prior, new_record, *, migrate
 
     if not serialized:
         return {"icon": "⚪", "name": new_record.source_filename,
-                "message": f"{reschedule_note}No other changes for event {new_record.event_id}."}
+                "message": f"{reschedule_note}No other changes for event {new_record.event_id}.",
+                "menu_items": new_record.menu_items}
 
     store.save_notification(client, division, new_record.event_id,
                              new_record.source_filename, serialized,
@@ -310,7 +328,8 @@ def _evaluate_and_store(division: str, data: dict, prior, new_record, *, migrate
     return {"icon": icon, "name": new_record.source_filename,
             "message": f"{reschedule_note}Updated event {new_record.event_id} — "
                        f"{escalate_n} to act on, {review_n} to review — "
-                       f"see the Notifications tab."}
+                       f"see the Notifications tab.",
+            "menu_items": new_record.menu_items}
 
 
 def _diff_and_store(division: str, data: dict, new_record, link_to_prior_date=None) -> dict:
@@ -340,7 +359,8 @@ def _diff_and_store(division: str, data: dict, new_record, link_to_prior_date=No
             # the identical image to agree on every field.
             return {"icon": "⚪", "name": new_record.source_filename,
                     "message": f"Exact same file already on record for event "
-                               f"{new_record.event_id} — nothing to compare."}
+                               f"{new_record.event_id} — nothing to compare.",
+                    "menu_items": new_record.menu_items}
         return _evaluate_and_store(division, data, existing, new_record)
 
     # No record for this exact (event_id, event_date). Before treating it
@@ -351,7 +371,8 @@ def _diff_and_store(division: str, data: dict, new_record, link_to_prior_date=No
     if not others:
         store.save(client, new_record)
         return {"icon": "🟢", "name": new_record.source_filename,
-                "message": f"New — stored as the baseline for event {new_record.event_id}."}
+                "message": f"New — stored as the baseline for event {new_record.event_id}.",
+                "menu_items": new_record.menu_items}
 
     prior = others[0]
     pending_key = f"batch_pending_{division}"
@@ -362,7 +383,8 @@ def _diff_and_store(division: str, data: dict, new_record, link_to_prior_date=No
     return {"icon": "🟡", "name": new_record.source_filename,
             "message": f"Event {new_record.event_id} is on file under a different date "
                        f"({prior.event_date}), this upload says {new_record.event_date} "
-                       f"— waiting for your decision below."}
+                       f"— waiting for your decision below.",
+            "menu_items": new_record.menu_items}
 
 
 def _extract_and_classify(division: str, uploaded):
@@ -495,6 +517,9 @@ def _render_pending_confirmations(division: str):
                       f"**{division}** anyway?")
             with st.container(border=True):
                 st.markdown(prompt)
+                if new_record.menu_items:
+                    with st.expander("Menu & notes"):
+                        _render_menu_items_structured(new_record.menu_items)
                 col_yes, col_no = st.columns(2)
                 confirm_clicked = col_yes.button("Yes — store it", key=f"batch_confirm_{item_key}",
                                                   use_container_width=True)
@@ -517,6 +542,9 @@ def _render_pending_confirmations(division: str):
                       f"different booking that happens to reuse this event number?")
             with st.container(border=True):
                 st.markdown(prompt)
+                if new_record.menu_items:
+                    with st.expander("Menu & notes"):
+                        _render_menu_items_structured(new_record.menu_items)
                 col_same, col_diff, col_no = st.columns(3)
                 same_clicked = col_same.button("Same event — link it", key=f"batch_link_{item_key}",
                                                 use_container_width=True)
@@ -533,7 +561,8 @@ def _render_pending_confirmations(division: str):
                 resolved.append({"icon": "🟢", "name": new_record.source_filename,
                                   "message": f"Stored as a separate booking for event "
                                              f"{new_record.event_id} on {new_record.event_date} "
-                                             f"(the {prior.event_date} booking is kept as-is)."})
+                                             f"(the {prior.event_date} booking is kept as-is).",
+                                  "menu_items": new_record.menu_items})
             elif discard_clicked:
                 resolved.append({"icon": "⚪", "name": new_record.source_filename,
                                   "message": "Skipped — not stored."})
@@ -545,6 +574,9 @@ def _render_pending_confirmations(division: str):
         st.success("Resolved just now:")
         for r in resolved:
             st.markdown(f"{r['icon']} **{r['name']}** — {r['message']}")
+            if r.get("menu_items"):
+                with st.expander("Menu & notes"):
+                    _render_menu_items_structured(r["menu_items"])
 
 
 _DIVISION_BIRD = {"Good Tidings": "🐓", "Goodies To Go": "🐤"}
@@ -596,6 +628,9 @@ def process_division(division: str):
         st.subheader(f"Batch result — {total} file(s)")
         for r in results:
             st.markdown(f"{r['icon']} **{r['name']}** — {r['message']}")
+            if r.get("menu_items"):
+                with st.expander("Menu & notes"):
+                    _render_menu_items_structured(r["menu_items"])
 
     _render_pending_confirmations(division)
 

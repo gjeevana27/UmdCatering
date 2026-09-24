@@ -48,6 +48,18 @@ upload order, which doesn't reflect which one was actually produced
 first) before either touches the database, so the earlier-printed one
 always becomes the baseline and the later one is diffed against it.
 
+Every batch/pending-confirmation result that has a stored `new_record`
+gets an expandable **"Menu & notes"** panel (`app.py`'s
+`_render_menu_items_structured()`) — one block per dish, its `Notes`
+(the free-text line/column printed under or beside it on the source
+document, e.g. a Goodies To Go packing list's "Notes" column) on its
+own indented line underneath, not folded into a single run-on caption.
+`MenuLineItem.description` was already being extracted and saved to
+Firestore either way; this closes the gap between "saved" and
+"actually shown to the chef" for the field, everywhere the app renders
+a full menu rather than just a diff. The Ask chatbot's `lookup_event`
+tool gets the same treatment — see the Ask chatbot section below.
+
 ### The decision layer (`src/contract_agent.py`)
 
 Every change is triaged into **Act on this** (escalate) or **Worth a
@@ -169,6 +181,18 @@ already are instead of needing to navigate away first.
   converted at the `llm_client` boundary so `app.py`'s chat history can
   keep using the same role strings `st.chat_message`-style code already
   used.
+- **`lookup_event` surfaces each item's Notes, not just name/qty.**
+  `MenuLineItem.description` (the free-text line/column printed under or
+  beside a recipe on the source document -- a Goodies To Go packing
+  list's "Notes" column, e.g. "16 Asst. Muffins, 16 Asst. Croissants,
+  17 Asst. Scones...") was already captured and stored by
+  `extract_contract_record()`/`ContractRecord`, but `lookup_event` used
+  to drop it, returning only `- <item> (<qty>)`. Now every item with a
+  saved description gets an indented `Notes: ...` line under it, and
+  the system prompt instructs the model to keep that structure in its
+  reply rather than compressing it away. Same underlying fix as
+  `_render_menu_items_structured()` in `app.py` (see below) -- one
+  field, two surfaces.
 - **The floating button is a real `st.button()`, not an injected HTML
   element.** Positioned via CSS targeting the `st-key-<key>` class
   Streamlit adds to a container given a `key` (a stable, documented
