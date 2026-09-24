@@ -15,6 +15,7 @@ No write-capable tool exists at all -- that's the actual enforcement of
 "never takes an action," not just a prompt instruction.
 """
 
+import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -122,7 +123,14 @@ two different dates under one event_id as the same event. So:
   -- don't just pick the most recent one.
 - If notifications_for_event comes back with an AMBIGUOUS result, relay
   that to the chef directly and ask which date, rather than picking one
-  yourself or silently merging the history."""
+  yourself or silently merging the history.
+
+A date with no year given ("May 5th," "5/5") could match events from
+ANY year on file, not just this one -- lookup_event and events_on_date
+both refuse to guess and return a NEEDS_YEAR result instead of
+querying. When you see that, ask the chef which year they mean, then
+call the same tool again with the year included -- never silently
+assume the current year yourself."""
 
 
 def _format_time(iso_timestamp: str) -> str:
@@ -136,6 +144,22 @@ def _format_time(iso_timestamp: str) -> str:
         return dt.strftime("%b %d, %I:%M %p EST")
     except (ValueError, TypeError):
         return iso_timestamp or "unknown time"
+
+
+_YEAR_RE = re.compile(r"\b\d{4}\b")
+
+
+def _needs_year(event_date: str) -> bool:
+    """True if this date string has no explicit 4-digit year -- "May 5th"
+    or "5/5" could be any year on file, not just the current one.
+    dateutil_parser.parse(fuzzy=True) (used throughout contract_store.py
+    for date comparison) silently DEFAULTS a missing year to today's
+    year rather than raising, so a year-less date from the chef would
+    otherwise silently resolve to this year's May 5th even if she meant
+    a different one -- wrong results with no indication anything was
+    assumed. Tool functions below check this BEFORE querying, so asking
+    for the year doesn't depend on the model remembering to do it."""
+    return not _YEAR_RE.search(event_date)
 
 
 def _flatten_notes(text: str) -> str:
@@ -156,7 +180,10 @@ def _flatten_notes(text: str) -> str:
 
 def _build_tools(client, division: str) -> list:
     def lookup_event(event_id: str, event_date: str) -> str:
-        """Looks up the exact stored contract record for this event_id AND event_date together. Returns one field per line, menu items as a bulleted list with quantity, each followed by its Notes on an indented line if the document had any (a Goodies To Go packing list's "Notes" column, or a Good Tidings description line -- same field, printed underneath the item's name on the source document) -- pass this structure through as-is, don't compress it into a paragraph, and don't drop the Notes lines."""
+        """Looks up the exact stored contract record for this event_id AND event_date together. Returns one field per line, menu items as a bulleted list with quantity, each followed by its Notes on an indented line if the document had any (a Goodies To Go packing list's "Notes" column, or a Good Tidings description line -- same field, printed underneath the item's name on the source document) -- pass this structure through as-is, don't compress it into a paragraph, and don't drop the Notes lines. event_date MUST include a 4-digit year (e.g. "May 5, 2026", not "May 5th") -- if the chef only gave a day/month, ask which year before calling this."""
+        if _needs_year(event_date):
+            return ("NEEDS_YEAR: this date has no year given -- ask the chef which year "
+                    "they mean, then call this tool again with the year included.")
         record = store.lookup(client, division, event_id, event_date)
         if record is None:
             return "no record on file for that exact event_id and event_date combination"
@@ -184,7 +211,10 @@ def _build_tools(client, division: str) -> list:
                           for r in others)
 
     def events_on_date(event_date: str) -> str:
-        """Lists every stored event on this calendar date, regardless of event_id."""
+        """Lists every stored event on this calendar date, regardless of event_id. event_date MUST include a 4-digit year (e.g. "May 5, 2026", not "May 5th" or "5/5") -- if the chef gave a date with no year, ask which year they mean before calling this; a year-less date could match events from any year on file, not just the current one."""
+        if _needs_year(event_date):
+            return ("NEEDS_YEAR: this date has no year given -- ask the chef which year "
+                    "they mean, then call this tool again with the year included.")
         records = store.find_by_date(client, division, event_date)
         if not records:
             return "no stored events found on that date"
@@ -204,7 +234,10 @@ def _build_tools(client, division: str) -> list:
         return lines
 
     def notifications_for_event(event_id: str, event_date: str = "") -> str:
-        """Lists the permanent change history for this event_id, most recent 10 first, one bolded timestamp per notification followed by its changes as a bulleted list. If event_date is omitted and this event_id has history under MORE THAN ONE date, returns an AMBIGUOUS warning instead of history -- the same event_id can legitimately be a different booking that reused the number on a different date, and that history must never be silently mixed with this one. When that happens, call this tool again with event_date set to the one the chef confirms."""
+        """Lists the permanent change history for this event_id, most recent 10 first, one bolded timestamp per notification followed by its changes as a bulleted list. If event_date is omitted and this event_id has history under MORE THAN ONE date, returns an AMBIGUOUS warning instead of history -- the same event_id can legitimately be a different booking that reused the number on a different date, and that history must never be silently mixed with this one. When that happens, call this tool again with event_date set to the one the chef confirms. If event_date IS given, it must include a 4-digit year -- a year-less date could match a different year's booking under this same event_id."""
+        if event_date and _needs_year(event_date):
+            return ("NEEDS_YEAR: this date has no year given -- ask the chef which year "
+                    "they mean, then call this tool again with the year included.")
         all_matches = [n for n in store.list_notifications(client, division, limit=100)
                        if n.get("event_id") == event_id]
         if not all_matches:
