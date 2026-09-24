@@ -1383,7 +1383,7 @@ def _render_ask_fab():
 <style>
 div.st-key-ask_fab{position:fixed;bottom:24px;right:24px;z-index:9999;width:auto;}
 div.st-key-ask_fab button{border-radius:50%;width:56px;height:56px;
-font-size:2.2rem;line-height:1;box-shadow:0 2px 10px rgba(0,0,0,0.35);
+font-size:2.9rem;line-height:1;box-shadow:0 2px 10px rgba(0,0,0,0.35);
 padding:0; overflow:visible;}
 /* A fly buzzing near the cookie -- purely decorative, pointer-events:
    none so it never intercepts a click meant for the real button
