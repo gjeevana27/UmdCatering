@@ -206,6 +206,20 @@ already are instead of needing to navigate away first.
   reply rather than compressing it away. Same underlying fix as
   `_render_menu_items_structured()` in `app.py` (see below) -- one
   field, two surfaces.
+- **A broad "what events are available" question gets a real list, not
+  a non-answer.** Before `list_events()` existed, nothing let the model
+  answer that without a date or event_id already in hand -- it would
+  describe its own capabilities instead of showing data, including,
+  once, literally naming a tool ("you can ask me using events_on_date")
+  in its reply. Two fixes together: `contract_store.list_events()`
+  returns every stored record in a division sorted by date, capped at a
+  limit, with the true total so a caller knows if anything was left
+  out; the system prompt now explicitly forbids naming a tool/function
+  in a reply (an internal implementation detail the chef should never
+  see) and instructs the model to actually call the listing tool and
+  show real events (ID/date/location) for a broad question instead of
+  explaining what it theoretically could look up. Verified live against
+  real Firestore data for both divisions.
 - **The floating button is a real `st.button()`, not an injected HTML
   element.** Positioned via CSS targeting the `st-key-<key>` class
   Streamlit adds to a container given a `key` (a stable, documented

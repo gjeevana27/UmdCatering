@@ -34,6 +34,23 @@ from a tool. If nothing on file answers the question, say so plainly
 ("I don't have that on file") rather than speculating. When you cite a
 fact, name which event/date/notification it came from.
 
+NEVER mention a tool or function name in your reply (e.g. don't say
+"you can ask me using events_on_date" or "I'll call lookup_event") --
+those are internal implementation details the chef should never see.
+Describe what you can do in plain, chef-facing language instead ("ask
+me about a specific date and I'll list what's on for it").
+
+A broad question with no date or event_id given yet -- "what events
+are available," "what's on file," "what's coming up" -- is NOT a
+question to deflect or answer abstractly by describing your
+capabilities. Actually call the right tool and show the chef real
+data: list events (event ID, date, location, one per line) rather than
+explaining what you theoretically could look up. If the tool result
+says more events exist than were shown, say so and suggest asking
+about a specific date to see the rest -- don't imply the shown list is
+everything, and don't apologize for not being able to show every event
+at once.
+
 Keep answers SHORT and scannable, like a text message, not a report:
 - A couple of sentences for a simple fact.
 - A short bulleted list for multiple items -- one line each, no more
@@ -60,6 +77,13 @@ Menu:
 - <item> (<qty>)
   Notes: <notes, only if present>
 - <item> (<qty>)
+
+For a list of events (from a broad question, or "what's on this
+date"), reply with one bullet per event, kept to just ID/date/location
+-- that's enough for the chef to recognize which one they mean; if she
+wants more on a specific one, she'll ask and you can look it up then:
+- Event <id> — <date> — <location>
+- Event <id> — <date> — <location>
 
 For change history, reply with one bolded timestamp per notification,
 followed by its changes as bullets:
@@ -131,6 +155,18 @@ def _build_tools(client, division: str) -> list:
         return "; ".join(f"Event {r.event_id} at {r.location} ({r.guest_count} guests)"
                           for r in records)
 
+    def list_events(limit: int = 15) -> str:
+        """Use this for a BROAD question with NO date or event_id given yet -- "what events are available," "what's on file," "what's coming up." Lists up to `limit` stored events (event ID, date, location), sorted by date. If there are more on file than `limit`, the result says how many more weren't shown -- relay that to the chef and suggest asking about a specific date (then use events_on_date) to see the rest, rather than treating this short list as everything that exists."""
+        records, total = store.list_events(client, division, limit=limit)
+        if not records:
+            return "no events on file at all for this division"
+        lines = "\n".join(f"- Event {r.event_id} — {r.event_date} — {r.location}"
+                           for r in records)
+        remaining = total - len(records)
+        if remaining > 0:
+            lines += f"\n\n({remaining} more on file, not shown here -- ask about a specific date to see them)"
+        return lines
+
     def notifications_for_event(event_id: str, event_date: str = "") -> str:
         """Lists the permanent change history for this event_id, most recent 10 first, one bolded timestamp per notification followed by its changes as a bulleted list. If event_date is omitted and this event_id has history under MORE THAN ONE date, returns an AMBIGUOUS warning instead of history -- the same event_id can legitimately be a different booking that reused the number on a different date, and that history must never be silently mixed with this one. When that happens, call this tool again with event_date set to the one the chef confirms."""
         all_matches = [n for n in store.list_notifications(client, division, limit=100)
@@ -182,8 +218,8 @@ def _build_tools(client, division: str) -> list:
             return "no known allergen terms matched in this text"
         return "; ".join(f"{cat} (via '{term}', {mtype})" for cat, mtype, term in hits)
 
-    return [lookup_event, find_other_dates, events_on_date, notifications_for_event,
-            get_dish_allergen_note, check_known_allergens]
+    return [lookup_event, find_other_dates, events_on_date, list_events,
+            notifications_for_event, get_dish_allergen_note, check_known_allergens]
 
 
 def ask(client, division: str, question: str, history: list | None = None) -> str:

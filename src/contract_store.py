@@ -228,6 +228,24 @@ def find_by_date(client: firestore.Client, division: str, event_date: str) -> li
             if dates_match(d.to_dict().get("event_date", ""), event_date)]
 
 
+def list_events(client: firestore.Client, division: str, limit: int = 30) -> tuple:
+    """Every stored record in this division, sorted by calendar date
+    (soonest/oldest first, via the same _normalize_date_key() used for
+    Firestore document IDs -- an unparseable date sorts after every real
+    one rather than crashing) -- for a BROAD "what events are on file"
+    question with no date or event_id to narrow by yet, e.g. from the
+    Ask chatbot. Returns (records[:limit], total_count) so a caller can
+    tell the chef there's MORE than what's shown, instead of silently
+    truncating an unbounded list with no indication anything was left
+    out. Same full-collection-scan tradeoff as find_by_date() above --
+    fine at this project's real scale, not a pattern to reuse at higher
+    volume."""
+    docs = _collection(client, division).stream()
+    records = [_record_from_dict(d.to_dict()) for d in docs]
+    records.sort(key=lambda r: _normalize_date_key(r.event_date))
+    return records[:limit], len(records)
+
+
 def save(client: firestore.Client, record: ContractRecord):
     """Overwrites whatever was stored for this EXACT (event_id, event_date)
     pair (per the 'overwrite, don't keep history' decision) -- document ID
