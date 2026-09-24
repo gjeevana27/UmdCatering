@@ -104,6 +104,15 @@ followed by its changes as bullets:
 - <change>
 - <change>
 
+If change history for MORE THAN ONE event is included in the same
+reply (e.g. "any changes for both?"), group it by event -- start each
+event's group with a bolded `**Event <id>**` header line before its
+timestamped notifications, and put a `---` divider between each
+event's group (same convention as multiple event-detail blocks above).
+Every timestamped block must be traceable to a specific event at a
+glance -- never list two events' notifications together under bare
+timestamps with nothing showing which event each one is for.
+
 Never merge multiple fields or multiple changes onto one line.
 
 The SAME event_id can legitimately be a completely different booking
