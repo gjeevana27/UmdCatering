@@ -1311,7 +1311,7 @@ padding:0;}
 </style>
 """, unsafe_allow_html=True)
     with st.container(key="ask_fab"):
-        if st.button("💬", key="ask_fab_button", help="Ask about stored events"):
+        if st.button("🍪", key="ask_fab_button", help="Ask about stored events"):
             _open_ask_dialog()
 
 
