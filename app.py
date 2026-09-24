@@ -1385,53 +1385,62 @@ div.st-key-ask_fab{position:fixed;bottom:24px;right:24px;z-index:9999;width:auto
 div.st-key-ask_fab button{border-radius:50%;width:56px;height:56px;
 font-size:1.5rem;line-height:1;box-shadow:0 2px 10px rgba(0,0,0,0.35);
 padding:0;}
-/* A fly orbiting the cookie -- purely decorative, pointer-events:none
-   so it never intercepts a click meant for the real button underneath.
-   This div is a SIBLING of div.st-key-ask_fab in the DOM (rendered by
-   the st.markdown call right before that container), not a child of
-   it, so it's positioned independently via the same fixed anchor
-   (bottom/right) rather than a percentage centered on a parent it
-   isn't actually inside. 140px box, centered exactly on the 56px
-   button's own center via the same "inset + half-width" match as
-   before (24px button inset + 28px half-width = 52px = -18px box
-   inset + 70px half-width) -- a bigger box than the button means a
-   real gap between the fly's orbit and the button's edge, instead of
-   the fly grazing it. Rotating the WHOLE box traces the fly in a
-   circle around the button (a plain top/left keyframe animation can't
-   easily trace a circle, but rotating a centered parent can); a
-   negative inset just lets part of the box's empty corner extend past
-   the viewport edge, which is invisible since nothing is drawn there.
+/* A fly buzzing near the cookie -- purely decorative, pointer-events:
+   none so it never intercepts a click meant for the real button
+   underneath. Previous version orbited in a full circle, which swung
+   far enough right/down to clip past the viewport edge since the
+   button itself sits right in the corner; this version instead
+   anchors a small group (fly + its "psst..." bubble, moving together
+   as ONE unit) just above the button and jitters it through a handful
+   of short, small hops -- a zigzag buzz rather than a smooth circle,
+   and one that stays close to the button and safely inside the page
+   at every step (max ~16px from the anchor in any direction).
 
-   Facing: the fly's OWN element only translates to center it on the
-   box's top edge -- it does NOT itself rotate, so as the outer box
-   spins it still inherits that rotation and appears to tumble in
-   place rather than track the direction of travel. Fixed by nesting
-   an inner span that adds a fixed 90deg rotation on top of whatever
-   the parent contributes -- at any point on a clockwise circle, the
-   tangent (direction of travel) is exactly 90deg clockwise from the
-   "outward from center" direction the parent's rotation already
-   points the fly in, so one constant offset keeps the head leading at
-   every point of the orbit, not just adjusted at a few keyframe
-   steps. */
-.ask-fly-orbit{position:fixed; bottom:-18px; right:-18px; width:140px; height:140px;
-animation:ask-fly-spin 5s linear infinite; pointer-events:none; z-index:9998;}
-.ask-fly-orbit .ask-fly-pos{position:absolute; top:0; left:50%;
-transform:translateX(-50%);}
-.ask-fly-orbit .ask-fly{display:inline-block; transform:rotate(90deg); font-size:0.525rem;}
-@keyframes ask-fly-spin{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
-/* The "psst..." bubble stays put (doesn't orbit) so it's always
-   readable, and just fades in and out on a slow cycle above the
-   button -- like the fly occasionally whispering rather than a
-   constant label crowding the corner. */
-.ask-psst{position:fixed; bottom:88px; right:18px; z-index:9998;
-background:var(--paper-raised); border:1px solid var(--line);
+   Two separate elements share the same keyframe timing (4s, same %
+   stops) rather than one: .ask-buzz only TRANSLATES (moves the fly
+   and the bubble together as a group); .ask-fly-turn only ROTATES,
+   applied to the fly alone, so the bubble's text never tumbles along
+   with it. The rotation values are chosen to roughly face the fly
+   toward each upcoming hop's direction (0=up, 90=right, 180=down,
+   270=left, per a rotate(90deg)=faces-right calibration confirmed
+   against the actual emoji glyph), so it still reads as flying
+   toward where it's headed, just changing direction more abruptly
+   than a smooth orbit would. */
+.ask-buzz{position:fixed; bottom:85px; right:22px; z-index:9998;
+display:flex; flex-direction:column; align-items:flex-end; gap:4px;
+pointer-events:none; animation:ask-buzz-move 4s ease-in-out infinite;}
+@keyframes ask-buzz-move{
+  0%   {transform:translate(0px,0px);}
+  20%  {transform:translate(14px,-6px);}
+  40%  {transform:translate(-4px,-16px);}
+  60%  {transform:translate(-16px,-2px);}
+  80%  {transform:translate(-2px,10px);}
+  100% {transform:translate(0px,0px);}
+}
+.ask-buzz .ask-fly{display:inline-block; font-size:0.75rem;
+animation:ask-fly-turn 4s ease-in-out infinite;}
+@keyframes ask-fly-turn{
+  0%   {transform:rotate(45deg);}
+  20%  {transform:rotate(90deg);}
+  40%  {transform:rotate(180deg);}
+  60%  {transform:rotate(225deg);}
+  80%  {transform:rotate(315deg);}
+  100% {transform:rotate(45deg);}
+}
+/* The "psst..." bubble now rides along inside .ask-buzz (moves WITH
+   the fly) instead of staying fixed in place -- still fades in and
+   out on its own independent cycle so it reads as an occasional
+   whisper rather than a constant label. */
+.ask-buzz .ask-psst{background:var(--paper-raised); border:1px solid var(--line);
 border-radius:12px; padding:4px 10px; font-size:0.78rem;
-box-shadow:0 2px 8px rgba(0,0,0,0.2); pointer-events:none;
+box-shadow:0 2px 8px rgba(0,0,0,0.2);
 animation:ask-psst-fade 6s ease-in-out infinite;}
 @keyframes ask-psst-fade{0%,60%{opacity:0;}70%,90%{opacity:1;}100%{opacity:0;}}
 </style>
-<div class="ask-fly-orbit"><span class="ask-fly-pos"><span class="ask-fly">🪰</span></span></div>
-<div class="ask-psst">psst&hellip;</div>
+<div class="ask-buzz">
+  <div class="ask-psst">psst&hellip;</div>
+  <span class="ask-fly">🪰</span>
+</div>
 """, unsafe_allow_html=True)
     with st.container(key="ask_fab"):
         if st.button("🍪", key="ask_fab_button", help="Ask Crumbly any questions you've got"):
