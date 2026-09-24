@@ -280,6 +280,17 @@ compliance agent and extended for real packing lists:
   relies on) that asks Gemini to infer a plausible full ingredient list
   from general culinary knowledge, clearly labeled as inference, never
   presented as a verified read of the document.
+- Goodies To Go packing lists specifically print a "Notes" column next
+  to each dish that often spells out its real component breakdown (e.g.
+  "The Annapolitan-Fruit Tray" → Notes: "16 Asst. Muffins, 16 Asst.
+  Croissants, 17 Asst. Scones, ..."). The prompt explicitly tells Gemini
+  to read that column as part of the dish, not skip it — a dish name
+  alone can look allergen-free while its Notes column hides wheat/egg/
+  dairy items the name gives no hint of at all. Verified live against a
+  real scanned document: before this fix, "The Annapolitan-Fruit Tray"
+  inferred only fruit/coffee/tea ingredients (no allergens); after, it
+  correctly pulls in flour/eggs/milk/butter from the Notes-listed
+  muffins, croissants, and scones.
 - Every inferred allergen finding has a confirm checkbox; confirming (or
   typing in an allergen you already know about a dish) saves it to a
   persistent, kitchen-wide reference keyed by dish name — the next time

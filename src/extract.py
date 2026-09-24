@@ -197,16 +197,31 @@ most one short description line (e.g. "ZAATAR GRILLED CHICKEN served over
 pearled cous cous and seasonal vegetables") -- there usually is NO actual
 ingredients list printed anywhere on the page.
 
-For each dish: first note anything literally printed in its name or
-description. Then, since that's rarely a complete ingredient breakdown,
-use your general culinary knowledge of the dish to infer a REASONABLE,
-FULL list of likely ingredients -- e.g. for "Zaatar Grilled Chicken,"
-infer chicken, olive oil, and the zaatar spice blend's typical components
-(thyme, sumac, sesame seeds), even though only the word "zaatar" is
-printed. This is a deliberate best-effort inference for allergen-safety
-screening, NOT a verified read of a real recipe -- a human always reviews
-and confirms every finding before trusting it, so err on the side of
-including a plausible ingredient rather than silently omitting one.
+Goodies To Go packing lists specifically also have a "Notes" column next
+to each dish row, which often spells out the dish's REAL component
+breakdown -- e.g. a dish simply named "The Annapolitan-Fruit Tray" can
+have a Notes column reading "1 Large Fruit Platter, 16 Asst. Muffins, 16
+Asst. Croissants, 17 Asst. Scones, 1 Regular Coffee, 1 Decaf Coffee, 1
+Hot Tea." Read this column carefully for every dish and treat every item
+listed in it as literally part of that dish, on equal footing with the
+dish name itself -- feed EACH named item into your ingredient inference
+below (muffins, croissants, and scones each carry their own wheat/egg/
+dairy ingredients that "Fruit Tray" alone gives no hint of at all). Never
+skip or summarize away the Notes column just because the dish's own name
+looks self-explanatory -- the name and the Notes column are describing
+the same one dish, and both must be read before inferring ingredients.
+
+For each dish: first note anything literally printed in its name,
+description, AND Notes column (see above). Then, since that's rarely a
+complete ingredient breakdown even combined, use your general culinary
+knowledge of every item found to infer a REASONABLE, FULL list of likely
+ingredients -- e.g. for "Zaatar Grilled Chicken," infer chicken, olive
+oil, and the zaatar spice blend's typical components (thyme, sumac,
+sesame seeds), even though only the word "zaatar" is printed. This is a
+deliberate best-effort inference for allergen-safety screening, NOT a
+verified read of a real recipe -- a human always reviews and confirms
+every finding before trusting it, so err on the side of including a
+plausible ingredient rather than silently omitting one.
 
 Read the attached document carefully and return ONLY a JSON object with
 this exact shape, no other text:
