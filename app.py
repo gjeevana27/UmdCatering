@@ -1391,17 +1391,33 @@ padding:0;}
    the st.markdown call right before that container), not a child of
    it, so it's positioned independently via the same fixed anchor
    (bottom/right) rather than a percentage centered on a parent it
-   isn't actually inside. 96px box, fixed 4px from each edge, centers
-   it exactly on the 56px button's own center (24px inset + 28px half-
-   width = 52px = 4px inset + 48px half-width) -- the fly then sits at
-   the box's top-center, 48px from that center, and rotating the WHOLE
-   box traces it in a circle around the button (a plain top/left
-   keyframe animation can't easily trace a circle, but rotating a
-   centered parent can). */
-.ask-fly-orbit{position:fixed; bottom:4px; right:4px; width:96px; height:96px;
+   isn't actually inside. 140px box, centered exactly on the 56px
+   button's own center via the same "inset + half-width" match as
+   before (24px button inset + 28px half-width = 52px = -18px box
+   inset + 70px half-width) -- a bigger box than the button means a
+   real gap between the fly's orbit and the button's edge, instead of
+   the fly grazing it. Rotating the WHOLE box traces the fly in a
+   circle around the button (a plain top/left keyframe animation can't
+   easily trace a circle, but rotating a centered parent can); a
+   negative inset just lets part of the box's empty corner extend past
+   the viewport edge, which is invisible since nothing is drawn there.
+
+   Facing: the fly's OWN element only translates to center it on the
+   box's top edge -- it does NOT itself rotate, so as the outer box
+   spins it still inherits that rotation and appears to tumble in
+   place rather than track the direction of travel. Fixed by nesting
+   an inner span that adds a fixed 90deg rotation on top of whatever
+   the parent contributes -- at any point on a clockwise circle, the
+   tangent (direction of travel) is exactly 90deg clockwise from the
+   "outward from center" direction the parent's rotation already
+   points the fly in, so one constant offset keeps the head leading at
+   every point of the orbit, not just adjusted at a few keyframe
+   steps. */
+.ask-fly-orbit{position:fixed; bottom:-18px; right:-18px; width:140px; height:140px;
 animation:ask-fly-spin 5s linear infinite; pointer-events:none; z-index:9998;}
-.ask-fly-orbit .ask-fly{position:absolute; top:0; left:50%;
-transform:translateX(-50%); font-size:1.05rem;}
+.ask-fly-orbit .ask-fly-pos{position:absolute; top:0; left:50%;
+transform:translateX(-50%);}
+.ask-fly-orbit .ask-fly{display:inline-block; transform:rotate(90deg); font-size:0.525rem;}
 @keyframes ask-fly-spin{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
 /* The "psst..." bubble stays put (doesn't orbit) so it's always
    readable, and just fades in and out on a slow cycle above the
@@ -1414,7 +1430,7 @@ box-shadow:0 2px 8px rgba(0,0,0,0.2); pointer-events:none;
 animation:ask-psst-fade 6s ease-in-out infinite;}
 @keyframes ask-psst-fade{0%,60%{opacity:0;}70%,90%{opacity:1;}100%{opacity:0;}}
 </style>
-<div class="ask-fly-orbit"><span class="ask-fly">🪰</span></div>
+<div class="ask-fly-orbit"><span class="ask-fly-pos"><span class="ask-fly">🪰</span></span></div>
 <div class="ask-psst">psst&hellip;</div>
 """, unsafe_allow_html=True)
     with st.container(key="ask_fab"):
