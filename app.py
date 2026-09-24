@@ -1221,11 +1221,11 @@ def _render_ask_content():
     boundary enforced everywhere else in this app -- switching the
     division selector starts a fresh conversation rather than letting one
     chat span both. Rendered inside the floating-button dialog below, not
-    its own tab -- the dialog already shows "Ask" as its title bar, so no
-    redundant header here."""
-    st.caption("Ask about events, dates, and change history already on file — "
-               "read-only, scoped to one division at a time. Never changes any "
-               "decision or stored data.")
+    its own tab -- the dialog already shows "Ask Crumbly" as its title
+    bar, so no redundant header here."""
+    st.caption("Ask Crumbly about events, dates, and change history already on "
+               "file — read-only, scoped to one division at a time. Never "
+               "changes any decision or stored data.")
 
     if client is None:
         st.info("Firestore isn't configured — nothing to ask about yet.")
@@ -1257,7 +1257,7 @@ def _render_ask_content():
     for msg in st.session_state[history_key]:
         _render_chat_bubble(msg["role"], msg["content"])
 
-    question = st.chat_input(f"Ask about {division}...")
+    question = st.chat_input(f"Ask Crumbly about {division}...")
     if question:
         prior_turns = list(st.session_state[history_key])  # BEFORE appending this
         # question -- ask_agent.ask()'s history param is prior COMPLETED
@@ -1278,7 +1278,7 @@ def _render_ask_content():
         st.rerun(scope="fragment")
 
 
-@st.dialog("Ask")
+@st.dialog("Ask Crumbly")
 def _open_ask_dialog():
     _render_ask_content()
 
@@ -1311,7 +1311,7 @@ padding:0;}
 </style>
 """, unsafe_allow_html=True)
     with st.container(key="ask_fab"):
-        if st.button("🍪", key="ask_fab_button", help="Ask about stored events"):
+        if st.button("🍪", key="ask_fab_button", help="Ask Crumbly any questions you've got"):
             _open_ask_dialog()
 
 
