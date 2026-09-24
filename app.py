@@ -1385,7 +1385,37 @@ div.st-key-ask_fab{position:fixed;bottom:24px;right:24px;z-index:9999;width:auto
 div.st-key-ask_fab button{border-radius:50%;width:56px;height:56px;
 font-size:1.5rem;line-height:1;box-shadow:0 2px 10px rgba(0,0,0,0.35);
 padding:0;}
+/* A fly orbiting the cookie -- purely decorative, pointer-events:none
+   so it never intercepts a click meant for the real button underneath.
+   This div is a SIBLING of div.st-key-ask_fab in the DOM (rendered by
+   the st.markdown call right before that container), not a child of
+   it, so it's positioned independently via the same fixed anchor
+   (bottom/right) rather than a percentage centered on a parent it
+   isn't actually inside. 96px box, fixed 4px from each edge, centers
+   it exactly on the 56px button's own center (24px inset + 28px half-
+   width = 52px = 4px inset + 48px half-width) -- the fly then sits at
+   the box's top-center, 48px from that center, and rotating the WHOLE
+   box traces it in a circle around the button (a plain top/left
+   keyframe animation can't easily trace a circle, but rotating a
+   centered parent can). */
+.ask-fly-orbit{position:fixed; bottom:4px; right:4px; width:96px; height:96px;
+animation:ask-fly-spin 5s linear infinite; pointer-events:none; z-index:9998;}
+.ask-fly-orbit .ask-fly{position:absolute; top:0; left:50%;
+transform:translateX(-50%); font-size:1.05rem;}
+@keyframes ask-fly-spin{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
+/* The "psst..." bubble stays put (doesn't orbit) so it's always
+   readable, and just fades in and out on a slow cycle above the
+   button -- like the fly occasionally whispering rather than a
+   constant label crowding the corner. */
+.ask-psst{position:fixed; bottom:88px; right:18px; z-index:9998;
+background:var(--paper-raised); border:1px solid var(--line);
+border-radius:12px; padding:4px 10px; font-size:0.78rem;
+box-shadow:0 2px 8px rgba(0,0,0,0.2); pointer-events:none;
+animation:ask-psst-fade 6s ease-in-out infinite;}
+@keyframes ask-psst-fade{0%,60%{opacity:0;}70%,90%{opacity:1;}100%{opacity:0;}}
 </style>
+<div class="ask-fly-orbit"><span class="ask-fly">🪰</span></div>
+<div class="ask-psst">psst&hellip;</div>
 """, unsafe_allow_html=True)
     with st.container(key="ask_fab"):
         if st.button("🍪", key="ask_fab_button", help="Ask Crumbly any questions you've got"):
